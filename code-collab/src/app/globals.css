@@ -1,0 +1,163 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800&family=Nova+Mono&family=Syne+Mono&family=Quantico:wght@400;700&family=Kode+Mono:wght@400..700&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+.nova-font { font-family: 'Nova Mono', monospace !important; }
+.syne-font { font-family: 'Syne Mono', monospace !important; }
+.jetbrains-font { font-family: 'JetBrains Mono', monospace !important; }
+.quantico-font { font-family: 'Quantico', sans-serif !important; }
+.kode-font { font-family: 'Kode Mono', monospace !important; }
+.space-font { font-family: 'Space Mono', monospace !important; }
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html.dark body {
+  background-color: #0b1120;
+  color: #e2e8f0;
+}
+
+html.light body {
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+html.dark ::-webkit-scrollbar-track { background: #0f172a; }
+html.dark ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+html.light ::-webkit-scrollbar-track { background: #f1f5f9; }
+html.light ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+html.light ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ─── Animations ─────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-fade-in-up { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+@keyframes blob {
+  0%   { transform: translate(0px, 0px) scale(1); }
+  33%  { transform: translate(30px, -50px) scale(1.1); }
+  66%  { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+.animate-blob { animation: blob 7s infinite alternate; }
+.animation-delay-2000 { animation-delay: 2s; }
+.animation-delay-4000 { animation-delay: 4s; }
+
+.bg-mesh {
+  background-image:
+    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.1) 0, transparent 50%),
+    radial-gradient(at 50% 0%, rgba(139, 92, 246, 0.1) 0, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.1) 0, transparent 50%);
+}
+
+textarea:focus { outline: none; }
+.no-select { user-select: none; }
+
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+html.light .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; }
+html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ─── Monaco Overrides ──────────────────────────────────────────────── */
+html.dark .monaco-editor,
+html.dark .monaco-editor .margin,
+html.dark .monaco-editor-background {
+  background-color: #232332 !important;
+}
+html.dark .monaco-editor .scroll-decoration { box-shadow: none !important; }
+
+html.light .monaco-editor,
+html.light .monaco-editor .margin,
+html.light .monaco-editor-background {
+  background-color: #EEF1F5 !important;
+}
+html.light .monaco-editor .scroll-decoration { box-shadow: none !important; }
+
+.monaco-editor .view-overlays .current-line {
+  border: none !important;
+  box-shadow: none !important;
+}
+html.dark .monaco-editor .view-overlays .current-line {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+html.light .monaco-editor .view-overlays .current-line {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+.monaco-editor .margin-view-overlays .current-line-margin {
+  border: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+}
+
+.monaco-editor .minimap { opacity: 0.5 !important; }
+.monaco-editor .minimap .minimap-decorations-layer { opacity: 0.15 !important; }
+.monaco-editor .minimap-slider .minimap-slider-decoration,
+.monaco-editor .minimap-slider .minimap-slider-horizontal {
+  background-color: transparent !important;
+  transition: background-color 0.2s;
+}
+
+html.dark .monaco-editor .minimap:hover .minimap-slider-decoration,
+html.dark .monaco-editor .minimap:hover .minimap-slider-horizontal {
+  background: rgba(203, 166, 247, 0.15) !important;
+}
+html.dark .monaco-editor .minimap-slider:hover .minimap-slider-decoration,
+html.dark .monaco-editor .minimap-slider:hover .minimap-slider-horizontal {
+  background: rgba(203, 166, 247, 0.25) !important;
+}
+html.dark .monaco-editor .minimap-slider.active .minimap-slider-decoration,
+html.dark .monaco-editor .minimap-slider.active .minimap-slider-horizontal {
+  background: rgba(203, 166, 247, 0.35) !important;
+}
+
+html.light .monaco-editor .minimap:hover .minimap-slider-decoration,
+html.light .monaco-editor .minimap:hover .minimap-slider-horizontal {
+  background: rgba(136, 57, 239, 0.15) !important;
+}
+html.light .monaco-editor .minimap-slider:hover .minimap-slider-decoration,
+html.light .monaco-editor .minimap-slider:hover .minimap-slider-horizontal {
+  background: rgba(136, 57, 239, 0.25) !important;
+}
+html.light .monaco-editor .minimap-slider.active .minimap-slider-decoration,
+html.light .monaco-editor .minimap-slider.active .minimap-slider-horizontal {
+  background: rgba(136, 57, 239, 0.35) !important;
+}

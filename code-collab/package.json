@@ -1,0 +1,40 @@
+{
+  "name": "codalyzer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "developer-icons": "^7.0.0",
+    "lib0": "^0.2.117",
+    "lucide-react": "^0.564.0",
+    "magika": "^1.0.0",
+    "monaco-editor": "^0.55.0",
+    "next": "^16.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "y-monaco": "^0.1.6",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.30"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "8.5.15",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.5",
+    "postcss": "8.5.15",
+    "tar": "7.5.15"
+  }
+}
