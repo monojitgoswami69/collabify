@@ -18,7 +18,6 @@ import {
   X,
 } from 'lucide-react';
 import { CollabMember, PendingRequest, CollabStatus } from '@/services/collabService';
-import { CollabToast } from '@/hooks/useCollabRoom';
 
 interface Props {
   roomId: string;
@@ -26,11 +25,9 @@ interface Props {
   isHost: boolean;
   members: CollabMember[];
   pending: PendingRequest[];
-  toasts: CollabToast[];
   onApprove: (peerId: string) => void;
   onReject: (peerId: string) => void;
   onLeave: () => void;
-  onDismissToast: (id: string) => void;
 }
 
 export function CollabBar({

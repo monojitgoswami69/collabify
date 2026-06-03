@@ -47,3 +47,26 @@ export const CURSOR_COLORS = [
 // Heartbeats / GC
 export const HEARTBEAT_INTERVAL_MS = 25_000;
 export const DOC_GC_DELAY_MS = 30_000;
+
+// Input limits — applied per-message at the control channel boundary.
+// Tuned so that a typical large source file (~ a few hundred KB) goes through
+// but a misbehaving client cannot exhaust memory.
+export const MAX_WS_PAYLOAD_BYTES = 2 * 1024 * 1024; // 2 MiB per WS message
+export const MAX_FILE_CONTENT_BYTES = 1 * 1024 * 1024; // 1 MiB per shared file
+export const MAX_FILE_ID_LEN = 200;
+export const MAX_SHARED_FILES_PER_ROOM = 200;
+export const MAX_REORDER_LIST_LEN = 200;
+export const MAX_CHAT_LEN = 2000;
+
+// Chat rate limit: at most CHAT_BURST messages within CHAT_WINDOW_MS per peer.
+export const CHAT_WINDOW_MS = 5_000;
+export const CHAT_BURST = 10;
+
+// WebSocket close codes used for intentional teardown. Mirrored client-side in
+// code-collab/src/services/collabService.ts — keep in sync.
+export const CLOSE = {
+  NORMAL: 1000,         // peaceful close (also: doc removed, client leave)
+  GOING_AWAY: 1001,     // server shutdown
+  POLICY_VIOLATION: 1008, // malformed / oversized payload, abuse
+  FILE_UNSHARED: 4001,  // host unshared the file (or never shared it)
+};

@@ -2,17 +2,25 @@ import { NextRequest } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-function postMessageHtml(payload: { token?: string; error?: string }, frontendOrigin: string) {
-  const parts: string[] = ['type: "github-oauth"'];
-  if (payload.token) {
-    const safe = payload.token.replace(/"/g, '\\"').replace(/\n/g, ' ');
-    parts.push(`token: "${safe}"`);
-  }
-  if (payload.error) {
-    const safe = payload.error.replace(/"/g, '\\"').replace(/\n/g, ' ');
-    parts.push(`error: "${safe}"`);
-  }
-  const payloadJs = `{ ${parts.join(', ')} }`;
+// Safely embed a value as a JS literal inside an inline <script>. JSON.stringify
+// produces a valid JS expression, but the HTML parser still terminates a
+// <script> element on a literal "</", and JSON allows the unescaped
+// U+2028 / U+2029 line terminators that break JS string literals.
+function jsLiteral(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(new RegExp('\\u2028','g'), '\\u2028')
+    .replace(new RegExp('\\u2029','g'), '\\u2029');
+}
+
+function postMessageHtml(
+  payload: { token?: string; error?: string },
+  frontendOrigin: string,
+) {
+  const safePayload = jsLiteral({ type: 'github-oauth', ...payload });
+  const safeOrigin = jsLiteral(frontendOrigin);
 
   return `<!DOCTYPE html>
 <html>
@@ -22,13 +30,13 @@ function postMessageHtml(payload: { token?: string; error?: string }, frontendOr
   Completing authentication…
 </p>
 <script>
-  const payload = ${payloadJs};
+  const payload = ${safePayload};
   try {
     localStorage.setItem("codecollab-github-oauth-result", JSON.stringify(payload));
   } catch (_) {}
   const sendResult = () => {
     if (!window.opener) return;
-    window.opener.postMessage(payload, "${frontendOrigin}");
+    window.opener.postMessage(payload, ${safeOrigin});
   };
   if (window.opener) {
     sendResult();
@@ -86,7 +94,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const data = (await res.json()) as { access_token?: string; error?: string; error_description?: string };
+    const data = (await res.json()) as {
+      access_token?: string;
+      error?: string;
+      error_description?: string;
+    };
     const accessToken = data.access_token;
     if (!accessToken) {
       const err = data.error_description || data.error || 'Unknown error';

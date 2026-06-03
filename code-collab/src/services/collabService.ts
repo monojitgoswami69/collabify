@@ -65,6 +65,8 @@ export interface CollabEvents {
   onFilesReordered: (sharedFiles: SharedFileInfo[]) => void;
   onApproved: (sharedFiles: SharedFileInfo[]) => void;
   onChatMessage: (message: ChatMessage) => void;
+  /** Fired when the control socket closes without `destroy()` being called. */
+  onConnectionLost: () => void;
 }
 
 export const CURSOR_COLORS = [
@@ -93,6 +95,20 @@ function buildWsUrl(path: string): string {
 
 // ─── DocConnection — per-file Yjs sync ─────────────────────────────────
 
+// Close codes the server uses for intentional teardown. Reconnecting after
+// these would just re-trigger the same rejection in a tight loop. Mirror of
+// socket-provider/src/constants.js CLOSE — keep in sync.
+const CLOSE = {
+  NORMAL: 1000,
+  GOING_AWAY: 1001,
+  FILE_UNSHARED: 4001,
+} as const;
+const NO_RETRY_CODES = new Set<number>([
+  CLOSE.NORMAL,
+  CLOSE.GOING_AWAY,
+  CLOSE.FILE_UNSHARED,
+]);
+
 export class DocConnection {
   readonly doc: Y.Doc;
   readonly awareness: Awareness;
@@ -101,7 +117,6 @@ export class DocConnection {
   private _destroyed = false;
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _reconnectAttempt = 0;
-  private _connectedOnce = false;
   private _roomId = '';
   private _displayName = '';
   private _color = '';
@@ -119,9 +134,9 @@ export class DocConnection {
     this._color = color;
 
     this.awareness.setLocalStateField('user', { name: displayName, color });
-    this._openSocket();
     this.doc.on('update', this._onDocUpdate);
     this.awareness.on('update', this._onAwarenessUpdate);
+    this._openSocket();
   }
 
   private _openSocket() {
@@ -134,7 +149,6 @@ export class DocConnection {
     this.ws = ws;
 
     ws.onopen = () => {
-      this._connectedOnce = true;
       this._reconnectAttempt = 0;
       // Initial sync handshake
       const encoder = encoding.createEncoder();
@@ -142,7 +156,7 @@ export class DocConnection {
       syncProtocol.writeSyncStep1(encoder, this.doc);
       ws.send(encoding.toUint8Array(encoder));
 
-      // Re-send our awareness so other peers see us after reconnect
+      // Re-send our awareness so other peers see us after reconnect.
       const localState = this.awareness.getLocalState();
       if (localState) {
         const awEncoder = encoding.createEncoder();
@@ -160,12 +174,10 @@ export class DocConnection {
       this._handleMessage(new Uint8Array(event.data));
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (this._destroyed) return;
-      // Try to reconnect (only if we ever connected — avoids loop when room is gone)
-      if (this._connectedOnce) {
-        this._scheduleReconnect();
-      }
+      if (NO_RETRY_CODES.has(event.code)) return;
+      this._scheduleReconnect();
     };
 
     ws.onerror = () => {
@@ -207,29 +219,35 @@ export class DocConnection {
   }
 
   private _onDocUpdate = (update: Uint8Array, origin: unknown) => {
-    if (origin === this) return;
+    if (origin === this) return; // server-applied update — don't echo
+
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MSG_SYNC);
     syncProtocol.writeUpdate(encoder, update);
     this._sendBinary(encoding.toUint8Array(encoder));
   };
 
-  private _onAwarenessUpdate = ({
-    added,
-    updated,
-    removed,
-  }: {
-    added: number[];
-    updated: number[];
-    removed: number[];
-  }) => {
-    const changedClients = [...added, ...updated, ...removed];
-    if (!changedClients.includes(this.doc.clientID)) return;
+  private _onAwarenessUpdate = (
+    { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown,
+  ) => {
+    // Skip echoes of remote awareness we just applied (origin === this) and
+    // skip local-only events that don't touch our own state — e.g. the
+    // periodic timeout reaper firing for a stale remote peer.
+    if (origin === this) return;
+    const localId = this.doc.clientID;
+    if (
+      !added.includes(localId) &&
+      !updated.includes(localId) &&
+      !removed.includes(localId)
+    ) {
+      return;
+    }
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MSG_AWARENESS);
     encoding.writeVarUint8Array(
       encoder,
-      encodeAwarenessUpdate(this.awareness, changedClients),
+      encodeAwarenessUpdate(this.awareness, [localId]),
     );
     this._sendBinary(encoding.toUint8Array(encoder));
   };
@@ -241,6 +259,7 @@ export class DocConnection {
   }
 
   destroy() {
+    if (this._destroyed) return;
     this._destroyed = true;
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
@@ -249,7 +268,7 @@ export class DocConnection {
     this.doc.off('update', this._onDocUpdate);
     this.awareness.off('update', this._onAwarenessUpdate);
     if (this.ws) {
-      try { this.ws.close(); } catch {}
+      try { this.ws.close(CLOSE.NORMAL, 'client-destroy'); } catch {}
       this.ws = null;
     }
     this.awareness.destroy();
@@ -310,8 +329,12 @@ export class CollabProvider {
 
     ws.onclose = () => {
       this._opened = false;
+      const wasConnected = this._status === 'connected' || this._status === 'waiting-approval';
       if (this._status !== 'rejected' && this._status !== 'error') {
         this._setStatus('disconnected');
+      }
+      if (wasConnected && !this._destroyed) {
+        this.events.onConnectionLost();
       }
     };
 
@@ -376,17 +399,21 @@ export class CollabProvider {
   }
 
   disconnect() {
-    for (const [, conn] of this.docConnections) conn.destroy();
+    for (const conn of this.docConnections.values()) conn.destroy();
     this.docConnections.clear();
     if (this.ws) {
-      try { if (this._opened) this._sendJson({ type: 'leave' }); } catch {}
-      try { this.ws.close(); } catch {}
+      if (this._opened) {
+        try { this.ws.send(JSON.stringify({ type: 'leave' })); } catch {}
+      }
+      try { this.ws.close(CLOSE.NORMAL, 'client-leave'); } catch {}
       this.ws = null;
     }
+    this._opened = false;
     this._setStatus('disconnected');
   }
 
   destroy() {
+    if (this._destroyed) return;
     this._destroyed = true;
     this.disconnect();
   }

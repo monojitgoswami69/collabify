@@ -5,6 +5,13 @@ import {
   CONTROL,
   OUT,
   CURSOR_COLORS,
+  MAX_FILE_CONTENT_BYTES,
+  MAX_FILE_ID_LEN,
+  MAX_SHARED_FILES_PER_ROOM,
+  MAX_REORDER_LIST_LEN,
+  MAX_CHAT_LEN,
+  CHAT_WINDOW_MS,
+  CHAT_BURST,
 } from './constants.js';
 import {
   generateId,
@@ -30,6 +37,9 @@ export function createRoomHandler({ rooms, docs }) {
     /** @type {Room | undefined} */
     let room = rooms.get(roomId);
     let joined = false;
+    // Sliding window: timestamps of recent chat messages from this peer.
+    /** @type {number[]} */
+    const chatTimes = [];
 
     log.debug('room', `connection ${peerId} -> ${roomId}`);
 
@@ -110,9 +120,22 @@ export function createRoomHandler({ rooms, docs }) {
           if (!room || !room.isHost(peerId)) return;
           const file = msg.file;
           if (!file || typeof file.id !== 'string') return;
+          if (file.id.length === 0 || file.id.length > MAX_FILE_ID_LEN) return;
+          const content = typeof file.content === 'string' ? file.content : '';
+          // Bytes, not chars — file.content may contain multi-byte chars.
+          if (Buffer.byteLength(content, 'utf8') > MAX_FILE_CONTENT_BYTES) {
+            sendJson(ws, { type: OUT.ERROR, message: 'File is too large to share' });
+            return;
+          }
+          if (
+            !room.hasSharedFile(file.id) &&
+            room.sharedFiles.size >= MAX_SHARED_FILES_PER_ROOM
+          ) {
+            sendJson(ws, { type: OUT.ERROR, message: 'Too many shared files in this room' });
+            return;
+          }
           const name = sanitizeStr(file.name, 'untitled', 200);
           const language = sanitizeStr(file.language, '', 40);
-          const content = typeof file.content === 'string' ? file.content : '';
           room.addSharedFile({ id: file.id, name, language, content });
           docs.seed(`${roomId}/${file.id}`, content);
           room.broadcastJson({
@@ -126,6 +149,7 @@ export function createRoomHandler({ rooms, docs }) {
         case CONTROL.REORDER_FILES: {
           if (!room || !room.isHost(peerId)) return;
           if (!Array.isArray(msg.files)) return;
+          if (msg.files.length > MAX_REORDER_LIST_LEN) return;
           room.reorderSharedFiles(msg.files);
           room.broadcastJson({
             type: OUT.FILES_REORDERED,
@@ -137,6 +161,7 @@ export function createRoomHandler({ rooms, docs }) {
         case CONTROL.UNSHARE_FILE: {
           if (!room || !room.isHost(peerId)) return;
           const fileId = typeof msg.fileId === 'string' ? msg.fileId : '';
+          if (!fileId || fileId.length > MAX_FILE_ID_LEN) return;
           if (!room.removeSharedFile(fileId)) return;
           room.broadcastJson({ type: OUT.FILE_UNSHARED, fileId });
           docs.destroy(`${roomId}/${fileId}`);
@@ -146,7 +171,14 @@ export function createRoomHandler({ rooms, docs }) {
 
         case CONTROL.CHAT_MESSAGE: {
           if (!room || !room.hasMember(peerId)) return;
-          const text = sanitizeStr(msg.text, '', 2000);
+          const now = Date.now();
+          while (chatTimes.length && now - chatTimes[0] > CHAT_WINDOW_MS) {
+            chatTimes.shift();
+          }
+          if (chatTimes.length >= CHAT_BURST) return; // silently drop
+          chatTimes.push(now);
+
+          const text = sanitizeStr(msg.text, '', MAX_CHAT_LEN);
           if (!text) return;
           const member = room.members.get(peerId);
           const chatMsg = {
@@ -156,14 +188,9 @@ export function createRoomHandler({ rooms, docs }) {
             displayName: member.displayName,
             color: member.color,
             text,
-            timestamp: Date.now(),
+            timestamp: now,
           };
-          const data = JSON.stringify(chatMsg);
-          for (const [, m] of room.members) {
-            if (m.ws.readyState === 1) {
-              try { m.ws.send(data); } catch {}
-            }
-          }
+          room.broadcastJson(chatMsg);
           return;
         }
 

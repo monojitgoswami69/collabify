@@ -508,11 +508,9 @@ export function EditorView({
           isHost={collab.isHost}
           members={collab.members}
           pending={collab.pending}
-          toasts={collab.toasts}
           onApprove={collab.approveJoin}
           onReject={collab.rejectJoin}
           onLeave={collab.leaveRoom}
-          onDismissToast={collab.dismissToast}
         />
       )}
 

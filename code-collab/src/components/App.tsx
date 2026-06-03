@@ -38,18 +38,35 @@ function AppInner() {
 
   const collab = useCollabRoom();
   const autoSharedRef = useRef(false);
-
+  // `files`, `activeFileId`, and `collab.shareFile` are needed inside an
+  // effect that should not re-run on every keystroke. Latest-ref pattern.
+  const filesRef = useRef(files);
+  const activeFileIdRef = useRef(activeFileId);
+  const shareFileRef = useRef(collab.shareFile);
   useEffect(() => {
+    filesRef.current = files;
+    activeFileIdRef.current = activeFileId;
+    shareFileRef.current = collab.shareFile;
+  });
+
+  const { isHost: collabIsHost, status: collabStatus } = collab;
+  const sharedCount = collab.sharedFiles.length;
+  useEffect(() => {
+    if (collabStatus === 'disconnected') {
+      autoSharedRef.current = false;
+      return;
+    }
     if (
-      collab.isHost &&
-      collab.status === 'connected' &&
-      collab.sharedFiles.length === 0 &&
+      collabIsHost &&
+      collabStatus === 'connected' &&
+      sharedCount === 0 &&
       !autoSharedRef.current
     ) {
-      const file = activeFileId ? files.find((f) => f.id === activeFileId) : null;
+      const activeId = activeFileIdRef.current;
+      const file = activeId ? filesRef.current.find((f) => f.id === activeId) : null;
       if (file) {
         autoSharedRef.current = true;
-        collab.shareFile({
+        shareFileRef.current({
           id: file.id,
           name: file.name,
           language: file.language,
@@ -57,10 +74,7 @@ function AppInner() {
         });
       }
     }
-    if (collab.status === 'disconnected') {
-      autoSharedRef.current = false;
-    }
-  }, [collab.isHost, collab.status, collab.sharedFiles.length, activeFileId, files, collab]);
+  }, [collabIsHost, collabStatus, sharedCount]);
 
   useEffect(() => {
     if (
@@ -70,6 +84,20 @@ function AppInner() {
       setShowCollabModal(false);
     }
   }, [collab.status, showCollabModal]);
+
+  // For non-host peers: when joining a room with shared files, if the user
+  // has no active selection (or their selection isn't part of the room),
+  // auto-open the first shared file so they immediately see live content.
+  const firstSharedId = collab.sharedFiles[0]?.id ?? null;
+  useEffect(() => {
+    if (collabStatus !== 'connected' || collabIsHost || !firstSharedId) return;
+    const activeIsShared =
+      activeFileId !== null && collab.sharedFiles.some((f) => f.id === activeFileId);
+    if (!activeIsShared) setActiveFileId(firstSharedId);
+    // `collab.sharedFiles` intentionally omitted: we only care when the first
+    // shared file appears or the active selection moves outside the set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collabStatus, collabIsHost, firstSharedId, activeFileId]);
 
   useIsomorphicLayoutEffect(() => {
     const stored = getStoredFiles();

@@ -173,6 +173,22 @@ export function useCollabRoom() {
       },
       onChatMessage: (message) =>
         setState((prev) => ({ ...prev, chatMessages: [...prev.chatMessages, message] })),
+      onConnectionLost: () => {
+        addToast('Lost connection to collab server. Please rejoin.', 'error');
+        providerRef.current?.destroy();
+        providerRef.current = null;
+        setState((prev) => ({
+          ...prev,
+          status: 'disconnected',
+          roomId: null,
+          isHost: false,
+          members: [],
+          pending: [],
+          sharedFiles: [],
+          provider: null,
+          peerId: '',
+        }));
+      },
     }),
     [addToast],
   );

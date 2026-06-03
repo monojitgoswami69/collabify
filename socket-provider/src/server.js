@@ -14,7 +14,11 @@ import { WebSocketServer } from 'ws';
 import { DocRegistry } from './docs.js';
 import { createRoomHandler } from './roomHandler.js';
 import { createDocHandler } from './docHandler.js';
-import { HEARTBEAT_INTERVAL_MS } from './constants.js';
+import {
+  HEARTBEAT_INTERVAL_MS,
+  CLOSE,
+  MAX_WS_PAYLOAD_BYTES,
+} from './constants.js';
 import { log } from './log.js';
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -57,7 +61,13 @@ app.get('/', (_req, res) => {
 
 // ── HTTP server + WebSocket routing ─────────────────────────────────────
 const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({
+  noServer: true,
+  // Reject single frames bigger than this. ws default is 100 MiB; that's a
+  // memory-exhaustion footgun. Tighten to a value large enough for big
+  // source files but not for runaway clients.
+  maxPayload: MAX_WS_PAYLOAD_BYTES,
+});
 
 const handleRoom = createRoomHandler({ rooms, docs });
 const handleDoc = createDocHandler({ rooms, docs });
@@ -117,7 +127,7 @@ function shutdown(signal) {
   log.info('boot', `${signal} received, shutting down`);
   clearInterval(heartbeat);
   for (const ws of wss.clients) {
-    try { ws.close(1001, 'server-shutdown'); } catch {}
+    try { ws.close(CLOSE.GOING_AWAY, 'server-shutdown'); } catch {}
   }
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 5000).unref();

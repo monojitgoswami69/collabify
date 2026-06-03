@@ -2,13 +2,13 @@
 
 // CollabMonacoEditor — Monaco bound to a per-file Yjs DocConnection.
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { MonacoBinding } from 'y-monaco';
 import { Loader2 } from 'lucide-react';
 import { StoredFile } from '@/services/storageService';
-import { CollabProvider, DocConnection } from '@/services/collabService';
+import { CollabProvider } from '@/services/collabService';
 import { configureMonacoOnce } from '@/lib/monacoBootstrap';
 import { defineCatppuccinThemes } from '@/lib/monacoThemes';
 
@@ -123,71 +123,63 @@ export function CollabMonacoEditor({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
-  const docConnRef = useRef<DocConnection | null>(null);
   const injectedRef = useRef<Set<number>>(new Set());
+  const [editorReady, setEditorReady] = useState(false);
 
   useEffect(() => {
     configureMonacoOnce();
   }, []);
 
-  const cleanupBinding = useCallback(() => {
-    if (bindingRef.current) {
-      bindingRef.current.destroy();
-      bindingRef.current = null;
-    }
-    injectedRef.current.forEach((id) => removeCursorStyles(id));
-    injectedRef.current.clear();
-  }, []);
+  // Bind Monaco to the Y.Doc once the editor is mounted AND the provider is
+  // connected. Owns the lifecycle of the binding + cursor decorations.
+  const providerStatus = provider.status;
+  useEffect(() => {
+    if (!editorReady || providerStatus !== 'connected') return;
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return;
 
-  const bindToFile = useCallback(
-    (editor: Monaco.editor.IStandaloneCodeEditor, prov: CollabProvider) => {
-      cleanupBinding();
-      const docConn = prov.openFileConnection(file.id);
-      docConnRef.current = docConn;
+    const docConn = provider.openFileConnection(file.id);
+    const ytext = docConn.doc.getText('monaco');
+    const binding = new MonacoBinding(ytext, model, new Set([editor]), docConn.awareness);
+    bindingRef.current = binding;
 
-      const ytext = docConn.doc.getText('monaco');
-      const model = editor.getModel();
-      if (!model) return;
-
-      const binding = new MonacoBinding(ytext, model, new Set([editor]), docConn.awareness);
-      bindingRef.current = binding;
-
-      const handleAwarenessChange = () => {
-        const states = docConn.awareness.getStates();
-        const localId = docConn.doc.clientID;
-
-        states.forEach((state, clientID) => {
-          if (clientID === localId) return;
-          if (injectedRef.current.has(clientID)) return;
-          const user = (state as { user?: { name?: string; color?: string } }).user;
-          if (user?.color && user?.name) {
-            injectCursorStyles(clientID, user.color, user.name);
-            injectedRef.current.add(clientID);
-          }
-        });
-
-        const activeIds = new Set(states.keys());
-        for (const id of injectedRef.current) {
-          if (!activeIds.has(id)) {
-            removeCursorStyles(id);
-            injectedRef.current.delete(id);
-          }
+    const injected = injectedRef.current;
+    const syncCursorDecorations = () => {
+      const states = docConn.awareness.getStates();
+      const localId = docConn.doc.clientID;
+      states.forEach((state, clientID) => {
+        if (clientID === localId || injected.has(clientID)) return;
+        const user = (state as { user?: { name?: string; color?: string } }).user;
+        if (user?.color && user?.name) {
+          injectCursorStyles(clientID, user.color, user.name);
+          injected.add(clientID);
         }
-      };
+      });
+      // Drop styles for peers that no longer exist. `states.has` is O(1),
+      // so we avoid allocating a snapshot Set per awareness tick.
+      for (const id of injected) {
+        if (!states.has(id)) {
+          removeCursorStyles(id);
+          injected.delete(id);
+        }
+      }
+    };
 
-      handleAwarenessChange();
-      docConn.awareness.on('change', handleAwarenessChange);
+    syncCursorDecorations();
+    docConn.awareness.on('change', syncCursorDecorations);
 
-      const origDestroy = binding.destroy.bind(binding);
-      binding.destroy = () => {
-        docConn.awareness.off('change', handleAwarenessChange);
-        injectedRef.current.forEach((id) => removeCursorStyles(id));
-        injectedRef.current.clear();
-        origDestroy();
-      };
-    },
-    [file.id, cleanupBinding],
-  );
+    return () => {
+      docConn.awareness.off('change', syncCursorDecorations);
+      injected.forEach((id) => removeCursorStyles(id));
+      injected.clear();
+      binding.destroy();
+      bindingRef.current = null;
+    };
+    // `provider` reference is stable across renders (held in React state via
+    // useCollabRoom); status is what flips, so list it explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorReady, providerStatus, file.id]);
 
   const handleBeforeMount: BeforeMount = (monaco) => {
     // Register themes BEFORE the editor instantiates so its very first
@@ -224,23 +216,15 @@ export function CollabMonacoEditor({
       if (model) onSelectionChange(model.getValueInRange(sel).length);
     });
 
-    if (provider.status === 'connected') {
-      bindToFile(editor, provider);
-    }
-
     const container = editor.getContainerDomNode().parentElement;
     if (container) {
       const ro = new ResizeObserver(() => editor.layout());
       ro.observe(container);
       editor.onDidDispose(() => ro.disconnect());
     }
-  };
 
-  useEffect(() => {
-    if (!editorRef.current || !provider || provider.status !== 'connected') return;
-    bindToFile(editorRef.current, provider);
-    return () => cleanupBinding();
-  }, [provider, provider?.status, file.id, bindToFile, cleanupBinding]);
+    setEditorReady(true);
+  };
 
   useEffect(() => {
     if (monacoRef.current) {
