@@ -1,29 +1,54 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono, Quantico, Kode_Mono } from 'next/font/google';
+import {
+  JetBrains_Mono,
+  Quantico,
+  Kode_Mono,
+  Nova_Mono,
+  Syne_Mono,
+  Space_Mono,
+} from 'next/font/google';
 import './globals.css';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-sans',
-  display: 'swap',
-});
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
-  variable: '--font-mono',
+  weight: ['400', '500', '700', '800'],
+  variable: '--font-jetbrains',
   display: 'swap',
 });
 
 const quantico = Quantico({
-  weight: ['400', '700'],
   subsets: ['latin'],
+  weight: ['400', '700'],
   variable: '--font-quantico',
   display: 'swap',
 });
 
 const kodeMono = Kode_Mono({
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
   variable: '--font-kode',
+  display: 'swap',
+});
+
+const novaMono = Nova_Mono({
+  subsets: ['latin'],
+  weight: ['400'],
+  variable: '--font-nova',
+  display: 'swap',
+});
+
+const syneMono = Syne_Mono({
+  subsets: ['latin'],
+  weight: ['400'],
+  variable: '--font-syne',
+  display: 'swap',
+});
+
+const spaceMono = Space_Mono({
+  subsets: ['latin'],
+  weight: ['400', '700'],
+  style: ['normal', 'italic'],
+  variable: '--font-space',
   display: 'swap',
 });
 
@@ -64,13 +89,22 @@ const themeBootstrap = `
 })();
 `;
 
+const fontVariables = [
+  jetbrainsMono.variable,
+  quantico.variable,
+  kodeMono.variable,
+  novaMono.variable,
+  syneMono.variable,
+  spaceMono.variable,
+].join(' ');
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={fontVariables} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} ${quantico.variable} ${kodeMono.variable} antialiased`}>
+      <body className="antialiased">
         {children}
       </body>
     </html>

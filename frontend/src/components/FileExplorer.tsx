@@ -233,8 +233,8 @@ const TreeItem = memo(function TreeItem({
               toggleExpand(node.path);
             }
           }}
-          className={`w-full flex items-center gap-1.5 py-1 pr-2 rounded-sm group transition-all duration-150 ease-out ${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-100'}`}
-          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          className={`w-full flex items-center gap-2 py-1.5 pr-2 rounded-sm group transition-all duration-150 ease-out ${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-100'}`}
+          style={{ paddingLeft: `${depth * 14 + 10}px` }}
         >
           {isExpanded ? (
             <ChevronDown size={12} className={textMuted} />
@@ -309,16 +309,16 @@ const TreeItem = memo(function TreeItem({
       draggable
       onDragStart={() => node.fileId && onDragStart(node.fileId)}
       onDragEnd={onDragEnd}
-      className={`w-full flex items-center gap-1.5 py-1 pr-2 rounded group transition-all duration-150 ease-out cursor-grab active:cursor-grabbing ${
-        isActive
-          ? isDark
-            ? 'bg-slate-800/80 text-blue-400'
-            : 'bg-blue-50/80 text-blue-600'
-          : isDark
-            ? 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-300'
-            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-      }`}
-      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      className={`w-full flex items-center gap-2 py-1.5 pr-2 rounded group transition-all duration-150 ease-out cursor-grab active:cursor-grabbing ${
+          isActive
+            ? isDark
+              ? 'bg-slate-800/80 text-blue-400'
+              : 'bg-blue-50/80 text-blue-600'
+            : isDark
+              ? 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-300'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+        }`}
+      style={{ paddingLeft: `${depth * 14 + 10}px` }}
     >
       {isLoading ? (
         <Loader2 size={13} className="animate-spin text-purple-400 shrink-0" />
@@ -456,11 +456,11 @@ export const FileExplorer = memo(function FileExplorer({
   );
 
   return (
-    <div className="space-y-0.5 text-sm">
+    <div className="space-y-1 text-sm">
       {isInRoom && (
-        <div className="mb-3">
+        <div className="mb-4">
           <div
-            className={`flex items-center gap-2 px-2 py-1.5 mb-px ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
+            className={`flex items-center gap-2 px-2.5 py-2 mb-px ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
           >
             <Users size={13} className={isDark ? 'text-[#CAA4F7]' : 'text-purple-600'} />
             <span className="text-[11px] font-bold tracking-wide uppercase">Collab</span>
@@ -475,7 +475,7 @@ export const FileExplorer = memo(function FileExplorer({
           />
 
           <div
-            className={`relative rounded-md transition-all duration-200 min-h-[40px] ${
+            className={`relative rounded-md transition-all duration-200 min-h-[40px] space-y-px ${
               isOverCollab
                 ? isDark
                   ? 'bg-purple-500/10 ring-1 ring-purple-500/50'
@@ -565,7 +565,7 @@ export const FileExplorer = memo(function FileExplorer({
                       setDraggedIndex(index);
                     }
                   }}
-                  className={`w-full flex items-center gap-1.5 py-1.5 pr-2 pl-2 rounded group transition-all duration-150 ease-out cursor-grab active:cursor-grabbing ${
+                  className={`w-full flex items-center gap-2 py-2 pr-2 pl-2.5 rounded group transition-all duration-150 ease-out cursor-grab active:cursor-grabbing ${
                     activeFileId === cf.id
                       ? isDark
                         ? 'bg-slate-800/80 text-blue-400'
@@ -596,9 +596,9 @@ export const FileExplorer = memo(function FileExplorer({
         </div>
       )}
 
-      <div className="mb-3">
+      <div className="mb-4">
         <div
-          className={`flex items-center gap-2 px-2 py-1.5 mb-px ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
+          className={`flex items-center gap-2 px-2.5 py-2 mb-px ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
         >
           <Folder size={13} className={isDark ? 'text-blue-400' : 'text-blue-500'} />
           <span className="text-[11px] font-bold tracking-wide uppercase">My Files</span>
@@ -613,7 +613,7 @@ export const FileExplorer = memo(function FileExplorer({
         />
 
         <div
-          className={`relative rounded-md transition-all duration-200 min-h-[40px] pb-2 ${
+          className={`relative rounded-md transition-all duration-200 min-h-[40px] pb-2 space-y-px ${
             isOverLocal
               ? isDark
                 ? 'bg-blue-500/10 ring-1 ring-blue-500/50'

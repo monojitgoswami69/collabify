@@ -8,6 +8,7 @@ import {
   useContext,
   ReactNode,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { Theme } from '@/lib/types';
 import { getStoredTheme, setStoredTheme } from '@/services/storageService';
 
@@ -43,8 +44,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setStoredTheme(theme);
   }, [theme]);
 
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  const toggleTheme = useCallback(async () => {
+    if (!(document as any).startViewTransition) {
+      setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+      return;
+    }
+
+    const transition = (document as any).startViewTransition(() => {
+      flushSync(() => {
+        setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+      });
+    });
+
+    try {
+      await transition.ready;
+      
+      document.documentElement.animate(
+        {
+          opacity: [0, 1],
+        },
+        {
+          duration: 200, // 400 * 0.5 = 200ms
+          easing: "ease-in-out",
+          pseudoElement: "::view-transition-new(root)",
+        }
+      );
+    } catch {
+      // Ignored
+    }
   }, []);
 
   return (

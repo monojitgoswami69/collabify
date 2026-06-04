@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { FileExplorer } from './FileExplorer';
@@ -39,6 +39,7 @@ import {
   GitHubLight,
 } from 'developer-icons';
 import type { useCollabRoom } from '@/hooks/useCollabRoom';
+import { setEditorLayoutSuspended } from '@/lib/monacoEditorConfig';
 
 // Dynamic import keeps Monaco out of the SSR/build path entirely.
 const ModernMonacoEditor = dynamic(
@@ -144,6 +145,131 @@ export function EditorView({
   const [selectionCount, setSelectionCount] = useState(0);
   const [fontSize, setFontSize] = useState(16);
 
+  // Sidebar resize — VSCode-style. Width is a CSS variable so the live drag
+  // can update the DOM directly via ref without re-rendering React 60×/sec.
+  // State is the committed value (persisted to localStorage on pointerup).
+  const SIDEBAR_MIN = 200;
+  const SIDEBAR_MAX = 480;
+  const SIDEBAR_DEFAULT = 256;
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [isResizing, setIsResizing] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    const saved = localStorage.getItem('editor-sidebar-width');
+    if (saved) {
+      const n = parseInt(saved, 10);
+      if (Number.isFinite(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) {
+        setSidebarWidth(n);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem('editor-sidebar-width', sidebarWidth.toString());
+  }, [sidebarWidth]);
+
+  const handleResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = sidebarRef.current?.offsetWidth ?? sidebarWidth;
+      let liveW = startW;
+
+      // Suspend Monaco's ResizeObserver-driven `editor.layout()` for the
+      // duration of the drag. Re-laying Monaco out 120×/sec is the main
+      // reason the sidebar edge appears to lag the cursor — disabling it
+      // turns the drag into pure CSS-variable writes, which the compositor
+      // handles at the refresh rate of the display.
+      setEditorLayoutSuspended(true);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+      setIsResizing(true);
+
+      // Capture the pointer on the sash so subsequent moves are delivered
+      // even when the cursor strays outside the element. Pointer capture
+      // is what VSCode's `Sash` uses for this exact case.
+      const sash = e.currentTarget;
+      try {
+        sash.setPointerCapture(e.pointerId);
+      } catch {
+        /* not all browsers honour capture on synthetic events */
+      }
+
+      // Write the CSS variable directly in the move handler. The browser
+      // already folds multiple style writes into a single paint per frame,
+      // so rAF coalescing here would just add a frame of latency.
+      const onMove = (ev: PointerEvent) => {
+        const next = startW + (ev.clientX - startX);
+        const clamped =
+          next < SIDEBAR_MIN ? SIDEBAR_MIN : next > SIDEBAR_MAX ? SIDEBAR_MAX : next;
+        if (clamped === liveW) return;
+        liveW = clamped;
+        sidebarRef.current?.style.setProperty('--sidebar-w', `${liveW}px`);
+      };
+      const onUp = () => {
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        setIsResizing(false);
+        setSidebarWidth(liveW); // single React update on release → persists
+        setEditorLayoutSuspended(false); // replays one editor.layout()
+        try {
+          sash.releasePointerCapture(e.pointerId);
+        } catch {
+          /* */
+        }
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    },
+    [sidebarWidth],
+  );
+
+  const handleResizeDoubleClick = useCallback(() => {
+    setSidebarWidth(SIDEBAR_DEFAULT);
+  }, []);
+
+  // Keyboard resize — mirrors VSCode's Sash: Arrow ±10px, Shift+Arrow ±50px,
+  // Home → min, End → max, Enter/Space → reset to default. Lets users (and
+  // a11y tools) resize without a pointer.
+  const handleResizeKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 50 : 10;
+    let next: number | null = null;
+    switch (e.key) {
+      case 'ArrowLeft':
+        next = Math.max(SIDEBAR_MIN, sidebarWidth - step);
+        break;
+      case 'ArrowRight':
+        next = Math.min(SIDEBAR_MAX, sidebarWidth + step);
+        break;
+      case 'Home':
+        next = SIDEBAR_MIN;
+        break;
+      case 'End':
+        next = SIDEBAR_MAX;
+        break;
+      case 'Enter':
+      case ' ':
+        next = SIDEBAR_DEFAULT;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    if (next !== null && next !== sidebarWidth) {
+      // Update CSS variable + state in one go — no Monaco-suspension dance
+      // needed because each keypress is a single discrete step, not a drag.
+      sidebarRef.current?.style.setProperty('--sidebar-w', `${next}px`);
+      setSidebarWidth(next);
+    }
+  }, [sidebarWidth]);
+
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     const saved = localStorage.getItem('editor-font-size');
@@ -157,20 +283,82 @@ export function EditorView({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Status-bar coalescing — Monaco fires onDidChangeCursorPosition /
+  // Selection on every micro-movement (during a click-drag selection that's
+  // 100+ fires/sec). VSCode batches its statusBar updates via interval;
+  // we use rAF, which keeps the bar at one repaint/frame max. The pending
+  // value lives in a ref and only one setState/frame is flushed.
+  const pendingCursorRef = useRef({ ln: 1, col: 1 });
+  const pendingSelectionRef = useRef(0);
+  const statusRafRef = useRef(0);
+  const flushStatus = useCallback(() => {
+    statusRafRef.current = 0;
+    setCursorPosition({ ...pendingCursorRef.current });
+    setSelectionCount(pendingSelectionRef.current);
+  }, []);
+  const scheduleStatusFlush = useCallback(() => {
+    if (statusRafRef.current) return;
+    statusRafRef.current = requestAnimationFrame(flushStatus);
+  }, [flushStatus]);
+  const handleCursorChange = useCallback(
+    (ln: number, col: number) => {
+      const prev = pendingCursorRef.current;
+      if (prev.ln === ln && prev.col === col) return;
+      pendingCursorRef.current = { ln, col };
+      scheduleStatusFlush();
+    },
+    [scheduleStatusFlush],
+  );
+  const handleSelectionChange = useCallback(
+    (count: number) => {
+      if (pendingSelectionRef.current === count) return;
+      pendingSelectionRef.current = count;
+      scheduleStatusFlush();
+    },
+    [scheduleStatusFlush],
+  );
   useEffect(() => {
+    return () => {
+      if (statusRafRef.current) cancelAnimationFrame(statusRafRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    pendingCursorRef.current = { ln: 1, col: 1 };
+    pendingSelectionRef.current = 0;
     setCursorPosition({ ln: 1, col: 1 });
     setSelectionCount(0);
   }, [activeFileId]);
 
+  // Two-tier language detection:
+  //   1. Sync extension lookup — runs on every active-file change. Cheap.
+  //   2. Async Magika WASM — debounced 750ms. Magika is content-based so it
+  //      can re-classify as the user types, but we don't need to spin the
+  //      WASM up on every keystroke. 750ms matches the threshold used by
+  //      VSCode's "auto-detect language" (workbench.editor.languageDetection).
   useEffect(() => {
-    if (!activeFile || activeFile.language) return;
+    if (!activeFile) return;
+    if (activeFile.language) return; // already classified — no work
+
+    // Sync pass — fire immediately, no debounce.
     const syncLang = detectLanguage(activeFile.name, activeFile.content);
     if (syncLang) onLanguageChange(activeFile.id, syncLang);
-    if (activeFile.content && activeFile.content.trim().length > 20) {
-      detectLanguageAI(activeFile.name, activeFile.content).then((aiLang) => {
-        if (aiLang && aiLang !== syncLang) onLanguageChange(activeFile.id, aiLang);
-      });
-    }
+
+    // Async pass — only when there's enough content to be worth running
+    // the model. Debounced so rapid typing collapses to one classification.
+    if (!activeFile.content || activeFile.content.trim().length <= 20) return;
+
+    const fileId = activeFile.id;
+    const fileName = activeFile.name;
+    const content = activeFile.content;
+    const timer = setTimeout(() => {
+      detectLanguageAI(fileName, content)
+        .then((aiLang) => {
+          if (aiLang && aiLang !== syncLang) onLanguageChange(fileId, aiLang);
+        })
+        .catch(() => {});
+    }, 750);
+    return () => clearTimeout(timer);
   }, [activeFile?.id, activeFile?.language, activeFile?.name, activeFile?.content, onLanguageChange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFileUploadInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,7 +499,9 @@ export function EditorView({
         )}
 
         <div
-          className={`fixed md:relative inset-y-0 left-0 z-50 w-[280px] md:w-64 transform transition-transform duration-300 ease-in-out md:translate-none flex flex-col ${bg} border-r ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'} md:border-r-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          ref={sidebarRef}
+          style={{ ['--sidebar-w' as string]: `${sidebarWidth}px` }}
+          className={`fixed md:relative inset-y-0 left-0 z-50 w-[280px] md:w-[var(--sidebar-w)] transform transition-transform duration-300 ease-in-out md:translate-none flex flex-col ${bg} border-r ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'} md:border-r-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <div
             className={`flex md:hidden items-center justify-between px-4 py-3 border-b ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'}`}
@@ -380,6 +570,32 @@ export function EditorView({
               />
             )}
           </div>
+
+          {/* VSCode-style sash — 8 px hit area on the sidebar's right edge
+              with a 3 px Catppuccin-mauve band that fades in on hover and
+              stays solid during the drag. Hidden on mobile.
+              Keyboard support: tab to focus, then Arrow keys to resize. */}
+          <div
+            onPointerDown={handleResizePointerDown}
+            onDoubleClick={handleResizeDoubleClick}
+            onKeyDown={handleResizeKeyDown}
+            tabIndex={0}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize sidebar"
+            aria-valuemin={SIDEBAR_MIN}
+            aria-valuemax={SIDEBAR_MAX}
+            aria-valuenow={sidebarWidth}
+            className="hidden md:block group/resize absolute top-0 right-0 h-full w-2 -mr-1 cursor-col-resize z-50 touch-none select-none outline-none focus-visible:outline-none"
+          >
+            <div
+              className={`h-full w-[3px] ml-[2px] transition-colors duration-150 ease-out ${
+                isResizing
+                  ? 'bg-[#cba6f7]'
+                  : 'bg-transparent group-hover/resize:bg-[#cba6f7] group-focus-visible/resize:bg-[#cba6f7]'
+              }`}
+            />
+          </div>
         </div>
 
         <div className="flex-1 flex flex-col min-w-0">
@@ -432,8 +648,8 @@ export function EditorView({
                   fontSize={fontSize}
                   provider={collab.provider}
                   onChange={(code) => onCodeChange(activeFile.id, code)}
-                  onCursorChange={(ln, col) => setCursorPosition({ ln, col })}
-                  onSelectionChange={(count) => setSelectionCount(count)}
+                  onCursorChange={handleCursorChange}
+                  onSelectionChange={handleSelectionChange}
                 />
               ) : (
                 <ModernMonacoEditor
@@ -441,8 +657,8 @@ export function EditorView({
                   theme={isDark ? 'dark' : 'light'}
                   fontSize={fontSize}
                   onChange={(code) => onCodeChange(activeFile.id, code)}
-                  onCursorChange={(ln, col) => setCursorPosition({ ln, col })}
-                  onSelectionChange={(count) => setSelectionCount(count)}
+                  onCursorChange={handleCursorChange}
+                  onSelectionChange={handleSelectionChange}
                 />
               )}
             </div>

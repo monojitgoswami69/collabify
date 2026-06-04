@@ -7,7 +7,11 @@ import { Loader2 } from 'lucide-react';
 import { StoredFile } from '@/services/storageService';
 import { configureMonacoOnce } from '@/lib/monacoBootstrap';
 import { defineCatppuccinThemes } from '@/lib/monacoThemes';
-
+import {
+  buildEditorOptions,
+  observeEditorLayout,
+  toMonacoLanguageId,
+} from '@/lib/monacoEditorConfig';
 
 interface Props {
   file: StoredFile;
@@ -17,24 +21,6 @@ interface Props {
   onCursorChange: (ln: number, col: number) => void;
   onSelectionChange: (count: number) => void;
 }
-
-const LANGUAGE_MAP: Record<string, string> = {
-  JavaScript: 'javascript',
-  TypeScript: 'typescript',
-  Python: 'python',
-  Java: 'java',
-  'C++': 'cpp',
-  C: 'c',
-  Go: 'go',
-  Rust: 'rust',
-  Ruby: 'ruby',
-  PHP: 'php',
-  HTML: 'html',
-  CSS: 'css',
-  JSON: 'json',
-  JSX: 'javascript',
-  TSX: 'typescript',
-};
 
 export function ModernMonacoEditor({
   file,
@@ -64,17 +50,8 @@ export function ModernMonacoEditor({
 
     monaco.editor.setTheme(theme === 'dark' ? 'catppuccin-mocha' : 'catppuccin-latte');
 
-    try {
-      const diagOff = {
-        noSemanticValidation: true,
-        noSyntaxValidation: true,
-        noSuggestionDiagnostics: true,
-      };
-      monaco.languages.typescript?.typescriptDefaults?.setDiagnosticsOptions(diagOff);
-      monaco.languages.typescript?.javascriptDefaults?.setDiagnosticsOptions(diagOff);
-    } catch {
-      /* ignore */
-    }
+    // Diagnostics are enabled globally in monacoBootstrap — no per-editor
+    // overrides here. See configureLanguageDefaults() for the tuning.
 
     editor.onDidChangeCursorPosition((e) => {
       onCursorChange(e.position.lineNumber, e.position.column);
@@ -87,12 +64,8 @@ export function ModernMonacoEditor({
       if (model) onSelectionChange(model.getValueInRange(selection).length);
     });
 
-    const container = editor.getContainerDomNode().parentElement;
-    if (container) {
-      const ro = new ResizeObserver(() => editor.layout());
-      ro.observe(container);
-      editor.onDidDispose(() => ro.disconnect());
-    }
+    // rAF-coalesced ResizeObserver — replaces the 100ms automaticLayout poll.
+    observeEditorLayout(editor);
   };
 
   useEffect(() => {
@@ -103,8 +76,7 @@ export function ModernMonacoEditor({
     }
   }, [theme]);
 
-  const languageId =
-    LANGUAGE_MAP[file.language] || file.language?.toLowerCase() || 'plaintext';
+  const languageId = toMonacoLanguageId(file.language);
 
   return (
     <div className="relative w-full h-full">
@@ -128,22 +100,7 @@ export function ModernMonacoEditor({
             />
           </div>
         }
-        options={{
-          automaticLayout: true,
-          fontSize,
-          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-          minimap: { enabled: true, showSlider: 'mouseover', renderCharacters: true },
-          wordWrap: 'on',
-          scrollBeyondLastLine: false,
-          lineNumbers: 'on',
-          roundedSelection: false,
-          padding: { top: 16, bottom: 16 },
-          bracketPairColorization: { enabled: true },
-          renderLineHighlight: 'line',
-          contextmenu: true,
-          scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
-          stickyScroll: { enabled: false },
-        }}
+        options={buildEditorOptions(fontSize)}
       />
     </div>
   );

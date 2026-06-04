@@ -148,12 +148,16 @@ function AppInner() {
     const loadMagikaAfterEverything = async () => {
       try {
         // Dynamically import configureMonacoOnce to avoid static dependency in App.tsx (SSR-safe)
-        const { configureMonacoOnce } = await import('@/lib/monacoBootstrap');
-        
+        const { configureMonacoOnce, preloadLanguageWorkers } = await import('@/lib/monacoBootstrap');
+
         // Wait for Monaco to be configured/loaded
         await configureMonacoOnce();
-        
+
         if (!active) return;
+
+        // Spin up TS/JS workers on idle so the first edit doesn't pay the
+        // worker-instantiation cost (same pattern Magika preload uses).
+        preloadLanguageWorkers();
 
         const preloadMagika = async () => {
           if (!active) return;
@@ -233,6 +237,11 @@ function AppInner() {
         }
         return next;
       });
+      // Dispose the Monaco text model so we don't leak its buffer +
+      // tokenization cache. Lazy import keeps monaco out of the SSR path.
+      import('@/lib/monacoModels')
+        .then(({ disposeModelsForFile }) => disposeModelsForFile(id))
+        .catch(() => {});
     },
     [],
   );
@@ -360,7 +369,11 @@ function AppInner() {
 
   const handleRepoDelete = useCallback(
     (repoKey: string) => {
+      let removedIds: string[] = [];
       setFiles((prev) => {
+        removedIds = prev
+          .filter((f) => f.repoOrigin && `${f.repoOrigin.owner}/${f.repoOrigin.repo}` === repoKey)
+          .map((f) => f.id);
         const next = prev.filter((f) => {
           if (!f.repoOrigin) return true;
           return `${f.repoOrigin.owner}/${f.repoOrigin.repo}` !== repoKey;
@@ -371,6 +384,11 @@ function AppInner() {
         }
         return next;
       });
+      if (removedIds.length > 0) {
+        import('@/lib/monacoModels')
+          .then(({ disposeModelsForFiles }) => disposeModelsForFiles(removedIds))
+          .catch(() => {});
+      }
     },
     [],
   );
