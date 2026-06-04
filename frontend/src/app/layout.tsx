@@ -1,10 +1,36 @@
 import type { Metadata, Viewport } from 'next';
+import { Inter, JetBrains_Mono, Quantico, Kode_Mono } from 'next/font/google';
 import './globals.css';
 
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
+
+const quantico = Quantico({
+  weight: ['400', '700'],
+  subsets: ['latin'],
+  variable: '--font-quantico',
+  display: 'swap',
+});
+
+const kodeMono = Kode_Mono({
+  subsets: ['latin'],
+  variable: '--font-kode',
+  display: 'swap',
+});
+
 export const metadata: Metadata = {
-  title: 'Codalyzer',
+  title: 'Collabify',
   description:
-    'Codalyzer — Monaco-powered collaborative code editor with conflict-free real-time editing.',
+    'Collabify — Monaco-powered collaborative code editor with conflict-free real-time editing.',
   manifest: '/favicons/site.webmanifest',
   icons: {
     icon: [
@@ -43,10 +69,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body>{children}</body>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} ${quantico.variable} ${kodeMono.variable} antialiased`}>
+        {children}
+      </body>
     </html>
   );
 }

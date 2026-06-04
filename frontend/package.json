@@ -1,5 +1,5 @@
 {
-  "name": "codalyzer",
+  "name": "collabify",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -10,30 +10,33 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "developer-icons": "^7.0.0",
+    "developer-icons": "^7.0.1",
     "lib0": "^0.2.117",
-    "lucide-react": "^0.564.0",
+    "lucide-react": "^1.17.0",
     "magika": "^1.0.0",
-    "monaco-editor": "^0.55.0",
-    "next": "^16.2.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "monaco-editor": "^0.55.1",
+    "next": "^16.2.7",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "y-monaco": "^0.1.6",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30"
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
-    "@types/node": "^25.0.0",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
-    "autoprefixer": "^10.4.20",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
     "postcss": "8.5.15",
-    "tailwindcss": "^3.4.17",
-    "typescript": "^5.9.0"
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3"
   },
   "overrides": {
-    "dompurify": "3.4.5",
+    "dompurify": "3.4.8",
     "postcss": "8.5.15",
-    "tar": "7.5.15"
+    "tar": "7.5.16",
+    "@mapbox/node-pre-gyp": "^2",
+    "rimraf": "^5",
+    "glob": "^13"
   }
 }

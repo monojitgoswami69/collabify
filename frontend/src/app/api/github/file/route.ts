@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     const auth = req.headers.get('authorization');
     const headers: Record<string, string> = {
-      'User-Agent': 'codalyzer',
+      'User-Agent': 'collabify',
     };
     if (auth) headers.Authorization = auth;
 

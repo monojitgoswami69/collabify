@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useMountTransition } from '@/hooks/useMountTransition';
 import { X, Users, Plus, LogIn, Copy, Check } from 'lucide-react';
@@ -23,7 +23,7 @@ function generateRoomId(): string {
   return id;
 }
 
-export function CollabRoomModal({
+export const CollabRoomModal = memo(function CollabRoomModal({
   isOpen,
   onClose,
   onCreateRoom,
@@ -88,7 +88,7 @@ export function CollabRoomModal({
       onClick={onClose}
     >
       <div
-        className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ease-out ${isActive ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300 ease-out ${isActive ? 'opacity-100' : 'opacity-0'}`}
       />
       <div
         className={`relative w-full max-w-md mx-4 rounded-2xl ${bg} border ${border} shadow-2xl overflow-hidden transition-all duration-300 ease-out transform ${isActive ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-95 opacity-0'}`}
@@ -140,7 +140,7 @@ export function CollabRoomModal({
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="e.g. John"
               maxLength={30}
-              className={`w-full px-3 py-2.5 rounded-lg border ${inputBg} ${inputBorder} ${inputText} text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all`}
+              className={`w-full px-3 py-2.5 rounded-lg border ${inputBg} ${inputBorder} ${inputText} text-sm placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all`}
             />
           </div>
 
@@ -189,7 +189,7 @@ export function CollabRoomModal({
                   }}
                   placeholder="e.g. A3K7M2"
                   maxLength={10}
-                  className={`w-full px-4 py-2.5 rounded-lg border ${inputBg} ${joinError ? 'border-red-400 ring-2 ring-red-400/30' : inputBorder} font-mono text-lg tracking-[0.3em] font-bold ${textP} placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all uppercase`}
+                  className={`w-full px-4 py-2.5 rounded-lg border ${inputBg} ${joinError ? 'border-red-400 ring-2 ring-red-400/30' : inputBorder} font-mono text-lg tracking-[0.3em] font-bold ${textP} placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all uppercase`}
                 />
                 {joinError && (
                   <p className="text-xs mt-1.5 text-red-400 font-medium">{joinError}</p>
@@ -209,4 +209,4 @@ export function CollabRoomModal({
       </div>
     </div>
   );
-}
+});

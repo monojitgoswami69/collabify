@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useMountTransition } from '@/hooks/useMountTransition';
 import {
@@ -30,7 +30,7 @@ interface Props {
   onLeave: () => void;
 }
 
-export function CollabBar({
+export const CollabBar = memo(function CollabBar({
   roomId,
   status,
   isHost,
@@ -162,7 +162,7 @@ export function CollabBar({
               <h3 className={`text-sm font-bold ${textP}`}>Room Members</h3>
               <button
                 onClick={() => setShowPanel(false)}
-                className={`p-1 rounded ${isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}
+                className={`p-1 rounded-sm ${isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}
               >
                 <X size={14} className={textM} />
               </button>
@@ -235,4 +235,4 @@ export function CollabBar({
       )}
     </>
   );
-}
+});

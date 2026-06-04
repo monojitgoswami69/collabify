@@ -1,6 +1,6 @@
 // Two-tier language detection: synchronous extension lookup + async Magika AI.
 
-import { Magika } from 'magika';
+import type { Magika } from 'magika';
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
   js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
@@ -93,9 +93,11 @@ async function getMagika(): Promise<Magika> {
   if (magikaInstance) return magikaInstance;
   if (magikaInitPromise) return magikaInitPromise;
 
-  magikaInitPromise = Magika.create().then((instance) => {
-    magikaInstance = instance;
-    return instance;
+  magikaInitPromise = import('magika').then(({ Magika }) => {
+    return Magika.create().then((instance) => {
+      magikaInstance = instance;
+      return instance;
+    });
   });
   return magikaInitPromise;
 }
@@ -120,7 +122,4 @@ export async function detectLanguageAI(fileName: string, content: string): Promi
   }
 }
 
-// Preload model in the background (browser only)
-if (typeof window !== 'undefined') {
-  getMagika().catch(() => {});
-}
+// Preloading is orchestrated by App.tsx after Monaco has finished loading.

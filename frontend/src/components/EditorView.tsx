@@ -18,7 +18,6 @@ import {
   FolderOpen,
   Sun,
   Moon,
-  Github,
   Users,
   X,
   MessageSquare,
@@ -36,6 +35,8 @@ import {
   RustDark,
   Ruby,
   PHP,
+  GitHubDark,
+  GitHubLight,
 } from 'developer-icons';
 import type { useCollabRoom } from '@/hooks/useCollabRoom';
 
@@ -231,9 +232,9 @@ export function EditorView({
   const textPrimary = isDark ? 'text-white' : 'text-slate-900';
 
   return (
-    <div className={`flex flex-col h-screen ${bg} text-slate-300 overflow-hidden`}>
+    <div className={`flex flex-col h-screen ${bgEditor} text-slate-300 overflow-hidden`}>
       <header
-        className={`h-14 flex items-center justify-between px-4 ${isDark ? 'bg-[#181821]' : 'bg-[#DBDFE7]'} z-20 shadow-sm border-b ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'}`}
+        className={`h-14 flex items-center justify-between px-4 ${isDark ? 'bg-[#181821]' : 'bg-[#DBDFE7]'} z-20 shadow-xs border-b ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'}`}
       >
         <div className="flex items-center gap-2 sm:gap-3">
           <button
@@ -245,7 +246,7 @@ export function EditorView({
           </button>
           <Image
             src="/CodeCollab-logo.png"
-            alt="Codalyzer Logo"
+            alt="Collabify Logo"
             width={40}
             height={40}
             className="w-8 h-8 sm:w-10 sm:h-10 object-contain"
@@ -254,7 +255,7 @@ export function EditorView({
           <span
             className={`hidden sm:inline font-black tracking-tighter quantico-font text-[24px] sm:text-[28px] ${textPrimary} select-none`}
           >
-            Codalyzer
+            Collabify
           </span>
           <button
             onClick={toggleTheme}
@@ -304,13 +305,13 @@ export function EditorView({
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {isSidebarOpen && (
           <div
-            className="fixed inset-0 z-40 bg-black/50 md:hidden backdrop-blur-sm transition-opacity"
+            className="fixed inset-0 z-40 bg-black/50 md:hidden backdrop-blur-xs transition-opacity"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
         <div
-          className={`fixed md:relative inset-y-0 left-0 z-50 w-[280px] md:w-64 transform transition-transform duration-300 ease-in-out md:transform-none flex flex-col ${bg} border-r ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'} md:border-r-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          className={`fixed md:relative inset-y-0 left-0 z-50 w-[280px] md:w-64 transform transition-transform duration-300 ease-in-out md:translate-none flex flex-col ${bg} border-r ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'} md:border-r-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
         >
           <div
             className={`flex md:hidden items-center justify-between px-4 py-3 border-b ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'}`}
@@ -327,13 +328,13 @@ export function EditorView({
             <div className="flex gap-2">
               <button
                 onClick={onFileCreate}
-                className="flex-1 flex items-center justify-center gap-2 bg-[#CAA4F7] hover:bg-[#D4B5F9] text-[#1E1E2A] py-2.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+                className="flex-1 flex items-center justify-center gap-2 bg-[#CAA4F7] hover:bg-[#D4B5F9] text-[#1E1E2A] py-2.5 rounded-lg text-xs font-bold transition-all shadow-xs active:scale-95"
               >
                 <Plus size={14} /> New Snippet
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center justify-center px-3 rounded-lg bg-[#CAA4F7]/20 hover:bg-[#CAA4F7]/30 text-[#CAA4F7] border border-[#CAA4F7]/30 transition-all active:scale-95 shadow-sm"
+                className="flex items-center justify-center px-3 rounded-lg bg-[#CAA4F7]/20 hover:bg-[#CAA4F7]/30 text-[#CAA4F7] border border-[#CAA4F7]/30 transition-all active:scale-95 shadow-xs"
                 title="Upload File"
               >
                 <Upload size={14} />
@@ -348,9 +349,9 @@ export function EditorView({
             </div>
             <button
               onClick={onOpenGitHub}
-              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all border ${isDark ? 'bg-[#232340] hover:bg-[#2a2a50] text-slate-300 border-slate-700/50 hover:border-purple-500/50' : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-300 hover:border-purple-400'} active:scale-[0.98] shadow-sm`}
+              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all border ${isDark ? 'bg-[#232340] hover:bg-[#2a2a50] text-slate-300 border-slate-700/50 hover:border-purple-500/50' : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-300 hover:border-purple-400'} active:scale-[0.98] shadow-xs`}
             >
-              <Github size={14} /> Import from GitHub
+              {isDark ? <GitHubLight size={14} /> : <GitHubDark size={14} />} Import from GitHub
             </button>
           </div>
 
@@ -389,7 +390,7 @@ export function EditorView({
                   size={48}
                   className={`mx-auto mb-8 ${isDark ? 'text-blue-400/50' : 'text-blue-500/50'}`}
                 />
-                <h2 className={`text-xl font-semibold mb-2 ${textPrimary}`}>Welcome to Codalyzer</h2>
+                <h2 className={`text-xl font-semibold mb-2 ${textPrimary}`}>Welcome to Collabify</h2>
                 <div className="flex gap-4 justify-center">
                   <button
                     onClick={onFileCreate}
@@ -404,7 +405,7 @@ export function EditorView({
             <div className="flex-1 relative overflow-hidden">
               {collab.status === 'waiting-approval' && (
                 <div
-                  className={`absolute inset-0 z-10 flex flex-col items-center justify-center ${isDark ? 'bg-[#232332]/90' : 'bg-[#EEF1F5]/90'} backdrop-blur-sm`}
+                  className={`absolute inset-0 z-10 flex flex-col items-center justify-center ${isDark ? 'bg-[#232332]/90' : 'bg-[#EEF1F5]/90'} backdrop-blur-xs`}
                 >
                   <div className="mb-4">
                     <Users size={32} className="text-[#CAA4F7]" />
@@ -515,7 +516,7 @@ export function EditorView({
       )}
 
       {collab.toasts.length > 0 && (
-        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+        <div className="fixed top-4 right-4 z-100 flex flex-col gap-2 pointer-events-none">
           {collab.toasts.map((toast) => (
             <div
               key={toast.id}
@@ -538,7 +539,7 @@ export function EditorView({
               <span className="flex-1 leading-snug">{toast.message}</span>
               <button
                 onClick={() => collab.dismissToast(toast.id)}
-                className="shrink-0 ml-2 opacity-60 hover:opacity-100 transition-all p-1 rounded hover:bg-black/10 dark:hover:bg-white/10"
+                className="shrink-0 ml-2 opacity-60 hover:opacity-100 transition-all p-1 rounded-sm hover:bg-black/10 dark:hover:bg-white/10"
               >
                 <X size={14} />
               </button>

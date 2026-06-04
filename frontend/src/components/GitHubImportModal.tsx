@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import Image from 'next/image';
 import { useTheme } from '@/hooks/useTheme';
 import {
   X,
-  Github,
   Link2,
   Loader2,
   ArrowLeft,
@@ -20,6 +19,7 @@ import {
   Check,
   Search,
 } from 'lucide-react';
+import { GitHubDark, GitHubLight } from 'developer-icons';
 import {
   getStoredToken,
   storeToken,
@@ -52,7 +52,7 @@ interface Props {
   onImportRepo?: (repo: GitHubRepo, tree: RepoTreeItem[]) => void;
 }
 
-export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: Props) {
+export const GitHubImportModal = memo(function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: Props) {
   const { isDark } = useTheme();
   const [tab, setTab] = useState<Tab>('url');
 
@@ -261,7 +261,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={resetAndClose}>
       <div
-        className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ease-out ${isActive ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300 ease-out ${isActive ? 'opacity-100' : 'opacity-0'}`}
       />
       <div
         className={`relative ${bg} rounded-2xl shadow-2xl border ${border} w-[640px] max-h-[85vh] flex flex-col overflow-hidden transition-all duration-300 ease-out transform ${isActive ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-95 opacity-0'}`}
@@ -269,8 +269,8 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
       >
         <div className={`flex items-center justify-between px-6 py-4 border-b ${border}`}>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center shadow-lg">
-              <Github size={18} className="text-white" />
+            <div className="w-9 h-9 rounded-xl bg-linear-to-br from-purple-500 to-blue-600 flex items-center justify-center shadow-lg">
+              <GitHubLight size={18} />
             </div>
             <div>
               <h2 className={`text-lg font-semibold ${text}`}>Import from GitHub</h2>
@@ -289,7 +289,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
           {(
             [
               ['url', Link2, 'Paste URL'] as const,
-              ['connect', Github, 'Connect GitHub'] as const,
+              ['connect', isDark ? GitHubLight : GitHubDark, 'Connect GitHub'] as const,
             ]
           ).map(([key, Icon, label]) => (
             <button
@@ -323,7 +323,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && handleUrlImport()}
                     placeholder="https://github.com/owner/repo/blob/main/file.ts"
-                    className={`w-full px-4 py-3 rounded-xl border text-sm font-mono ${inputBg} focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all`}
+                    className={`w-full px-4 py-3 rounded-xl border text-sm font-mono ${inputBg} focus:outline-hidden focus:ring-2 focus:ring-purple-500/50 transition-all`}
                     autoFocus={tab === 'url'}
                   />
                   {urlError && (
@@ -341,12 +341,12 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                   <button
                     onClick={handleUrlImport}
                     disabled={urlLoading || !url.trim()}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-500/20"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-purple-500/20"
                   >
                     {urlLoading ? (
                       <Loader2 size={16} className="animate-spin" />
                     ) : (
-                      <Github size={16} />
+                      <GitHubLight size={16} />
                     )}
                     {urlLoading ? 'Importing...' : 'Import File'}
                   </button>
@@ -370,8 +370,8 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                 className={`col-start-1 row-start-1 p-6 space-y-5 transition-opacity duration-200 ${tab === 'connect' ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}
               >
                 <div className="text-center py-4">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-600/20 flex items-center justify-center">
-                    <Github size={32} className={isDark ? 'text-white' : 'text-slate-800'} />
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-linear-to-br from-purple-500/20 to-blue-600/20 flex items-center justify-center">
+                    {isDark ? <GitHubLight size={32} /> : <GitHubDark size={32} />}
                   </div>
                   <h3 className={`text-base font-semibold mb-1 ${text}`}>
                     Connect your GitHub account
@@ -390,7 +390,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                 <button
                   onClick={handleConnect}
                   disabled={authLoading}
-                  className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-gradient-to-r from-[#24292f] to-[#1b1f23] hover:from-[#32383f] hover:to-[#24292f] text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-black/20 border border-white/10"
+                  className="w-full flex items-center justify-center gap-2.5 px-4 py-3.5 bg-linear-to-r from-[#24292f] to-[#1b1f23] hover:from-[#32383f] hover:to-[#24292f] text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-black/20 border border-white/10"
                 >
                   {authLoading ? (
                     <>
@@ -398,7 +398,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                     </>
                   ) : (
                     <>
-                      <Github size={18} /> Sign in with GitHub
+                      <GitHubLight size={18} /> Sign in with GitHub
                     </>
                   )}
                 </button>
@@ -444,7 +444,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                     value={repoSearch}
                     onChange={(e) => setRepoSearch(e.target.value)}
                     placeholder="Search repositories..."
-                    className={`w-full pl-9 pr-4 py-2.5 rounded-xl border text-sm ${inputBg} focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all`}
+                    className={`w-full pl-9 pr-4 py-2.5 rounded-xl border text-sm ${inputBg} focus:outline-hidden focus:ring-2 focus:ring-purple-500/50 transition-all`}
                   />
                 </div>
               </div>
@@ -545,7 +545,7 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
                       }
                     }}
                     disabled={importingRepo}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-50 shadow-md shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-50 shadow-md shrink-0"
                   >
                     {importingRepo ? (
                       <Loader2 size={13} className="animate-spin" />
@@ -612,4 +612,4 @@ export function GitHubImportModal({ isOpen, onClose, onImport, onImportRepo }: P
       </div>
     </div>
   );
-}
+});

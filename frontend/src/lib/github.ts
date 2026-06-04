@@ -9,7 +9,7 @@ export function ghHeaders(authorization: string | null) {
   return {
     Authorization: authorization,
     Accept: 'application/vnd.github.v3+json',
-    'User-Agent': 'codalyzer',
+    'User-Agent': 'collabify',
   };
 }
 

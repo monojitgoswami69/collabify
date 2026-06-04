@@ -85,7 +85,11 @@ export function createDocHandler({ rooms, docs }) {
       }
     });
 
-    const cleanup = () => docs.detach(docName, ws);
+    const cleanup = () => {
+      ws.off('close', cleanup);
+      ws.off('error', cleanup);
+      docs.detach(docName, ws);
+    };
     ws.once('close', cleanup);
     ws.once('error', cleanup);
   };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, memo, useCallback } from 'react';
 import { StoredFile } from '@/services/storageService';
 import { SharedFileInfo } from '@/services/collabService';
 import { useTheme } from '@/hooks/useTheme';
@@ -38,6 +38,7 @@ interface TreeNode {
   fileId?: string;
   isDir: boolean;
   repoKey?: string;
+  language?: string;
 }
 
 const langIconMap: Record<string, { icon: React.ComponentType<{ size?: number }> }> = {
@@ -94,6 +95,7 @@ function buildTree(files: StoredFile[]): TreeNode {
       if (isLast) {
         node.fileId = file.id;
         node.isDir = false;
+        node.language = file.language;
       }
       current = node;
     }
@@ -135,7 +137,7 @@ function ContextMenu({
   return (
     <div
       ref={ref}
-      className={`fixed z-[100] rounded-lg shadow-xl border py-1 min-w-[180px] animate-fade-in ${
+      className={`fixed z-100 rounded-lg shadow-xl border py-1 min-w-[180px] animate-fade-in ${
         isDark
           ? 'bg-[#232340] border-slate-700/60 text-slate-200'
           : 'bg-white border-slate-200 text-slate-700'
@@ -184,14 +186,13 @@ interface TreeItemProps {
   onContextMenu?: (e: React.MouseEvent, fileId: string, isInCollab: boolean) => void;
   expandedPaths: Set<string>;
   toggleExpand: (path: string) => void;
-  files: StoredFile[];
   isDark: boolean;
   isCollabSection?: boolean;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
 }
 
-function TreeItem({
+const TreeItem = memo(function TreeItem({
   node,
   depth,
   activeFileId,
@@ -202,7 +203,6 @@ function TreeItem({
   onContextMenu,
   expandedPaths,
   toggleExpand,
-  files,
   isDark,
   isCollabSection,
   onDragStart,
@@ -213,8 +213,6 @@ function TreeItem({
   const isLoading = node.fileId === loadingFileId;
   const isRepoRoot = depth === 0 && node.repoKey;
   const textMuted = isDark ? 'text-slate-400' : 'text-slate-500';
-
-  const storedFile = node.fileId ? files.find((f) => f.id === node.fileId) : null;
 
   if (node.isDir) {
     const sortedChildren = Array.from(node.children.values()).sort((a, b) => {
@@ -235,7 +233,7 @@ function TreeItem({
               toggleExpand(node.path);
             }
           }}
-          className={`w-full flex items-center gap-1.5 py-1 pr-2 rounded group transition-all duration-150 ease-out ${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-100'}`}
+          className={`w-full flex items-center gap-1.5 py-1 pr-2 rounded-sm group transition-all duration-150 ease-out ${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-100'}`}
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
           {isExpanded ? (
@@ -281,7 +279,6 @@ function TreeItem({
               onContextMenu={onContextMenu}
               expandedPaths={expandedPaths}
               toggleExpand={toggleExpand}
-              files={files}
               isDark={isDark}
               isCollabSection={isCollabSection}
               onDragStart={onDragStart}
@@ -326,7 +323,7 @@ function TreeItem({
       {isLoading ? (
         <Loader2 size={13} className="animate-spin text-purple-400 shrink-0" />
       ) : (
-        <LangIcon language={storedFile?.language || ''} size={13} />
+        <LangIcon language={node.language || ''} size={13} />
       )}
       <span className="text-[13px] truncate">{node.name}</span>
       {!isCollabSection && !node.repoKey && (
@@ -342,7 +339,7 @@ function TreeItem({
       )}
     </div>
   );
-}
+});
 
 interface FileExplorerProps {
   files: StoredFile[];
@@ -361,7 +358,7 @@ interface FileExplorerProps {
   onReorderCollabFiles?: (newOrder: SharedFileInfo[]) => void;
 }
 
-export function FileExplorer({
+export const FileExplorer = memo(function FileExplorer({
   files,
   activeFileId,
   loadingFileId,
@@ -380,6 +377,29 @@ export function FileExplorer({
   const { isDark } = useTheme();
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, id: string, collab: boolean) => {
+    setContextMenu({ x: e.clientX, y: e.clientY, fileId: id, isInCollab: collab });
+  }, []);
+
+  const handleToggleExpand = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const handleDragStart = useCallback((id: string) => {
+    setDraggedFileId(id);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedFileId(null);
+    setIsOverCollab(false);
+    setIsOverLocal(false);
+  }, []);
 
   const [draggedFileId, setDraggedFileId] = useState<string | null>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -440,7 +460,7 @@ export function FileExplorer({
       {isInRoom && (
         <div className="mb-3">
           <div
-            className={`flex items-center gap-2 px-2 py-1.5 mb-[1px] ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
+            className={`flex items-center gap-2 px-2 py-1.5 mb-px ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
           >
             <Users size={13} className={isDark ? 'text-[#CAA4F7]' : 'text-purple-600'} />
             <span className="text-[11px] font-bold tracking-wide uppercase">Collab</span>
@@ -578,7 +598,7 @@ export function FileExplorer({
 
       <div className="mb-3">
         <div
-          className={`flex items-center gap-2 px-2 py-1.5 mb-[1px] ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
+          className={`flex items-center gap-2 px-2 py-1.5 mb-px ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
         >
           <Folder size={13} className={isDark ? 'text-blue-400' : 'text-blue-500'} />
           <span className="text-[11px] font-bold tracking-wide uppercase">My Files</span>
@@ -650,26 +670,12 @@ export function FileExplorer({
                 onFileSelect={onFileSelect}
                 onFileDelete={onFileDelete}
                 onRepoDelete={onRepoDelete}
-                onContextMenu={(e, id, collab) =>
-                  setContextMenu({ x: e.clientX, y: e.clientY, fileId: id, isInCollab: collab })
-                }
+                onContextMenu={handleContextMenu}
                 expandedPaths={expandedPaths}
-                toggleExpand={(path) => {
-                  setExpandedPaths((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(path)) next.delete(path);
-                    else next.add(path);
-                    return next;
-                  });
-                }}
-                files={files}
+                toggleExpand={handleToggleExpand}
                 isDark={isDark}
-                onDragStart={setDraggedFileId}
-                onDragEnd={() => {
-                  setDraggedFileId(null);
-                  setIsOverCollab(false);
-                  setIsOverLocal(false);
-                }}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
               />
             ))
           )}
@@ -687,4 +693,4 @@ export function FileExplorer({
       )}
     </div>
   );
-}
+});

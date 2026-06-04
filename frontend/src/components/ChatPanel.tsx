@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import { Send, MessageSquare } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { ChatMessage } from '@/services/collabService';
@@ -13,7 +13,7 @@ interface ChatPanelProps {
   onClose?: () => void;
 }
 
-export function ChatPanel({
+export const ChatPanel = memo(function ChatPanel({
   isOpen,
   messages,
   selfPeerId,
@@ -58,7 +58,6 @@ export function ChatPanel({
       style={{
         width: isOpen ? 'clamp(280px, 100vw, 300px)' : 0,
         transition: 'width 280ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-        willChange: 'width',
         contain: 'strict',
       }}
     >
@@ -161,7 +160,7 @@ export function ChatPanel({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="Type a message..."
-              className={`w-full pl-3 pr-10 py-2 rounded-lg text-[12px] focus:outline-none transition-colors border ${inputBg} ${textPrimary} placeholder:text-slate-400/60 focus:ring-1 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7]/50`}
+              className={`w-full pl-3 pr-10 py-2 rounded-lg text-[12px] focus:outline-hidden transition-colors border ${inputBg} ${textPrimary} placeholder:text-slate-400/60 focus:ring-1 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7]/50`}
             />
             <button
               type="submit"
@@ -179,4 +178,4 @@ export function ChatPanel({
       </div>
     </div>
   );
-}
+});

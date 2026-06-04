@@ -114,12 +114,81 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    if (isInitialized) saveFiles(files);
+    if (!isInitialized) return;
+    const handler = setTimeout(() => {
+      saveFiles(files);
+    }, 500);
+    return () => clearTimeout(handler);
   }, [files, isInitialized]);
+
+  const lastSavedFilesRef = useRef(files);
+  useEffect(() => {
+    lastSavedFilesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    const handleBeforeUnload = () => {
+      saveFiles(lastSavedFilesRef.current);
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isInitialized]);
 
   useEffect(() => {
     if (isInitialized && activeFileId) saveActiveFileId(activeFileId);
   }, [activeFileId, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    let active = true;
+    let cleanup: (() => void) | undefined;
+
+    const loadMagikaAfterEverything = async () => {
+      try {
+        // Dynamically import configureMonacoOnce to avoid static dependency in App.tsx (SSR-safe)
+        const { configureMonacoOnce } = await import('@/lib/monacoBootstrap');
+        
+        // Wait for Monaco to be configured/loaded
+        await configureMonacoOnce();
+        
+        if (!active) return;
+
+        const preloadMagika = async () => {
+          if (!active) return;
+          const { detectLanguageAI } = await import('@/utils/detectLanguage');
+          detectLanguageAI('', '').catch(() => {});
+        };
+
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(preloadMagika);
+        } else {
+          setTimeout(preloadMagika, 1500);
+        }
+      } catch (err) {
+        console.error('Failed to lazy load Monaco/Magika in background', err);
+      }
+    };
+
+    // Wait for the window load event to guarantee all other components are fully loaded
+    if (document.readyState === 'complete') {
+      loadMagikaAfterEverything();
+    } else {
+      const listener = () => {
+        loadMagikaAfterEverything();
+      };
+      window.addEventListener('load', listener);
+      cleanup = () => {
+        window.removeEventListener('load', listener);
+      };
+    }
+
+    return () => {
+      active = false;
+      if (cleanup) cleanup();
+    };
+  }, [isInitialized]);
 
   const handleFileCreate = useCallback(() => {
     const newFile: StoredFile = {
@@ -159,13 +228,13 @@ function AppInner() {
     (id: string) => {
       setFiles((prev) => {
         const next = prev.filter((f) => f.id !== id);
-        if (activeFileId === id) {
+        if (activeFileIdRef.current === id) {
           setActiveFileId(next.length > 0 ? next[0].id : null);
         }
         return next;
       });
     },
-    [activeFileId],
+    [],
   );
 
   const handleCodeChange = useCallback((id: string, newCode: string) => {
@@ -236,7 +305,7 @@ function AppInner() {
   const handleFileSelect = useCallback(
     async (id: string) => {
       setActiveFileId(id);
-      const file = files.find((f) => f.id === id);
+      const file = filesRef.current.find((f) => f.id === id);
       if (file && file.repoOrigin && !file.contentLoaded) {
         setLoadingFileId(id);
         try {
@@ -286,7 +355,7 @@ function AppInner() {
         }
       }
     },
-    [files],
+    [],
   );
 
   const handleRepoDelete = useCallback(
@@ -296,13 +365,14 @@ function AppInner() {
           if (!f.repoOrigin) return true;
           return `${f.repoOrigin.owner}/${f.repoOrigin.repo}` !== repoKey;
         });
-        if (activeFileId && !next.some((f) => f.id === activeFileId)) {
+        const currentActiveId = activeFileIdRef.current;
+        if (currentActiveId && !next.some((f) => f.id === currentActiveId)) {
           setActiveFileId(next.length > 0 ? next[0].id : null);
         }
         return next;
       });
     },
-    [activeFileId],
+    [],
   );
 
   // Before localStorage has been read, render a bg-matching splash so the

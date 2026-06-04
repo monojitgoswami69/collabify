@@ -252,7 +252,7 @@ export class DocConnection {
     this._sendBinary(encoding.toUint8Array(encoder));
   };
 
-  private _sendBinary(data: Uint8Array) {
+  private _sendBinary(data: Uint8Array<ArrayBuffer>) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(data);
     }

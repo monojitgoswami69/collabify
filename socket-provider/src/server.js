@@ -1,14 +1,20 @@
-// Codalyzer Socket Provider — entrypoint.
+// Collabify Socket Provider — entrypoint.
 //
 // Architecture:
 //   /room/:roomId            JSON control channel (Room class)
 //   /doc/:roomId/:fileId     Binary Yjs sync + awareness (DocRegistry)
 //
 // Heartbeats keep proxies (Nginx, Cloudflare, etc.) from dropping idle sockets.
+//
+// TLS / WSS:
+//   Set TLS_CERT and TLS_KEY env vars to absolute paths of the certificate and
+//   private key files to enable HTTPS (and therefore WSS). When omitted the
+//   server falls back to plain HTTP/WS — suitable for local development behind
+//   a reverse proxy that terminates TLS.
 
 import http from 'node:http';
-import express from 'express';
-import cors from 'cors';
+import https from 'node:https';
+import fs from 'node:fs';
 import { WebSocketServer } from 'ws';
 
 import { DocRegistry } from './docs.js';
@@ -24,43 +30,103 @@ import { log } from './log.js';
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
+// ── TLS configuration ──────────────────────────────────────────────────
+const TLS_CERT = (process.env.TLS_CERT || '').trim();
+const TLS_KEY = (process.env.TLS_KEY || '').trim();
+
+let tlsOptions = null;
+if (TLS_CERT && TLS_KEY) {
+  try {
+    tlsOptions = {
+      cert: fs.readFileSync(TLS_CERT),
+      key: fs.readFileSync(TLS_KEY),
+    };
+    log.info('tls', `TLS enabled — cert: ${TLS_CERT}`);
+  } catch (err) {
+    log.error('tls', `Failed to read TLS files: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 // ── State ───────────────────────────────────────────────────────────────
 /** @type {Map<string, import('./room.js').Room>} */
 const rooms = new Map();
 const docs = new DocRegistry();
 
-// ── HTTP (Express) ──────────────────────────────────────────────────────
-const app = express();
-app.use(cors());
+// ── CORS helper ─────────────────────────────────────────────────────────
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
 
-app.get('/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    rooms: rooms.size,
-    docs: docs.count(),
-    uptime: Math.floor(process.uptime()),
+/** Send a JSON response with CORS headers. */
+function jsonResponse(res, statusCode, body) {
+  const payload = JSON.stringify(body);
+  res.writeHead(statusCode, {
+    ...CORS_HEADERS,
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(payload),
   });
-});
+  res.end(payload);
+}
 
-app.get('/stats', (_req, res) => {
-  const roomList = [];
-  for (const [roomId, room] of rooms) {
-    roomList.push({
-      roomId,
-      members: room.members.size,
-      pending: room.pending.size,
-      sharedFiles: room.sharedFiles.size,
-    });
+// ── HTTP request handler ────────────────────────────────────────────────
+function handleRequest(req, res) {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const pathname = url.pathname;
+
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS);
+    res.end();
+    return;
   }
-  res.json({ rooms: roomList, totalDocs: docs.count() });
-});
 
-app.get('/', (_req, res) => {
-  res.json({ service: 'codalyzer-socket-provider', version: '1.0.0' });
-});
+  if (req.method !== 'GET') {
+    jsonResponse(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
 
-// ── HTTP server + WebSocket routing ─────────────────────────────────────
-const server = http.createServer(app);
+  switch (pathname) {
+    case '/':
+      jsonResponse(res, 200, { service: 'collabify-socket-provider', version: '1.0.0' });
+      break;
+
+    case '/health':
+      jsonResponse(res, 200, {
+        status: 'ok',
+        rooms: rooms.size,
+        docs: docs.count(),
+        uptime: Math.floor(process.uptime()),
+      });
+      break;
+
+    case '/stats': {
+      const roomList = [];
+      for (const [roomId, room] of rooms) {
+        roomList.push({
+          roomId,
+          members: room.members.size,
+          pending: room.pending.size,
+          sharedFiles: room.sharedFiles.size,
+        });
+      }
+      jsonResponse(res, 200, { rooms: roomList, totalDocs: docs.count() });
+      break;
+    }
+
+    default:
+      jsonResponse(res, 404, { error: 'Not Found' });
+      break;
+  }
+}
+
+// ── HTTP(S) server + WebSocket routing ──────────────────────────────────
+const server = tlsOptions
+  ? https.createServer(tlsOptions, handleRequest)
+  : http.createServer(handleRequest);
+
 const wss = new WebSocketServer({
   noServer: true,
   // Reject single frames bigger than this. ws default is 100 MiB; that's a
@@ -116,10 +182,12 @@ const heartbeat = setInterval(() => {
 wss.on('close', () => clearInterval(heartbeat));
 
 // ── Listen ──────────────────────────────────────────────────────────────
+const protocol = tlsOptions ? 'wss' : 'ws';
+
 server.listen(PORT, HOST, () => {
-  log.info('boot', `Codalyzer socket provider on ${HOST}:${PORT}`);
-  log.info('boot', `  control: ws://${HOST}:${PORT}/room/:roomId`);
-  log.info('boot', `  doc:     ws://${HOST}:${PORT}/doc/:roomId/:fileId`);
+  log.info('boot', `Collabify socket provider on ${HOST}:${PORT} (${tlsOptions ? 'TLS' : 'plain'})`);
+  log.info('boot', `  control: ${protocol}://${HOST}:${PORT}/room/:roomId`);
+  log.info('boot', `  doc:     ${protocol}://${HOST}:${PORT}/doc/:roomId/:fileId`);
 });
 
 // ── Graceful shutdown ───────────────────────────────────────────────────
