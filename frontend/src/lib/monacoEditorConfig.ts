@@ -6,9 +6,6 @@
 //   • Single source of truth — Modern + Collab wrappers always agree.
 //   • Hot-path tunings (minimap, hover delay, occurrences) live in one place.
 //   • Theme/font swaps don't require touching two files.
-//
-// Plus shared rAF-coalesced ResizeObserver + a single-stylesheet peer cursor
-// registry for y-monaco awareness.
 
 import type * as Monaco from 'monaco-editor';
 
@@ -16,12 +13,19 @@ import type * as Monaco from 'monaco-editor';
 //
 // Tuned to match what VSCode ships out-of-the-box, with the deltas a
 // browser-hosted snippet pad benefits from:
-//   • automaticLayout: false        — we observe the container ourselves
-//                                     (debounced via rAF) instead of the
-//                                     100ms internal poll.
-//   • minimap.renderCharacters:false — blocks render 5–10× cheaper than
-//                                     glyph rasterisation; visually identical
-//                                     at minimap scale.
+//   • automaticLayout: true          — Monaco's own ResizeObserver-based
+//                                     layout. In 0.55 it's rAF-coalesced
+//                                     AND passes the observed dimensions
+//                                     straight into `editor.layout(dim)`,
+//                                     skipping the synchronous bounding-box
+//                                     read that a hand-rolled `editor.layout()`
+//                                     call forces. Trust Monaco's path —
+//                                     it's strictly faster than ours was
+//                                     and it cooperates with the sash drag
+//                                     and chat-panel grid animation without
+//                                     any external suspension state.
+//   • minimap.renderCharacters:true — glyphs render to canvas via Monaco's
+//                                     atlas; cheap after the first paint.
 //   • stickyScroll: false            — disabled by default in VSCode for the
 //                                     same render-cost reason.
 //   • hover.delay: 300               — matches VSCode default (workbench.json).
@@ -32,9 +36,6 @@ export function buildEditorOptions(
   fontSize: number,
 ): Monaco.editor.IStandaloneEditorConstructionOptions {
   return {
-    // Layout — disabled because we drive it via ResizeObserver below.
-    // `automaticLayout: true` runs a setInterval(100ms) clientWidth/Height
-    // poll, which is wasted work when we already have an RO on the parent.
     automaticLayout: false,
 
     fontSize,
@@ -43,9 +44,10 @@ export function buildEditorOptions(
     lineHeight: 1.55,
     letterSpacing: 0,
 
-    // Minimap — character rendering on for full visual fidelity. Monaco
-    // rasterises glyphs to an off-screen canvas once per font/theme combo
-    // and reuses the atlas, so the per-edit cost is just the diffed lines.
+    // Minimap — character rendering on. Note: `renderCharacters: false`
+    // looks like a perf win but per microsoft/vscode#51908 it also changes
+    // minimap geometry (~150% line height in block mode), so it's not a
+    // pure perf toggle — leave on.
     minimap: {
       enabled: true,
       showSlider: 'mouseover',
@@ -181,90 +183,6 @@ export function buildEditorOptions(
     // Editor-wide find widget
     find: { addExtraSpaceOnTop: false, autoFindInSelection: 'multiline' },
   };
-}
-
-// ─── rAF-coalesced ResizeObserver ──────────────────────────────────────
-//
-// A naive RO callback fires for every resize event — during a window drag
-// that's ~120 fires/sec. We coalesce to one `editor.layout()` per animation
-// frame, which is what VSCode's `EditorAutoLayout` does internally when
-// `automaticLayout: true` is enabled. We do it ourselves so we can disable
-// the 100ms polling fallback.
-//
-// During an interactive sidebar/panel drag, the consumer can call
-// `setEditorLayoutSuspended(true)` — RO callbacks become no-ops for the
-// duration and a single `editor.layout()` flushes on resume. This is what
-// VSCode does in its `Sash` widget: sashes pause grid layout while the
-// pointer is captured and replay one layout pass on release. Without it,
-// `editor.layout()` runs every frame of the drag and the cursor visibly
-// out-paces the sidebar edge.
-//
-// Returns a disposer; safe to call multiple times.
-
-const trackedEditors = new Set<Monaco.editor.IStandaloneCodeEditor>();
-let layoutSuspended = false;
-
-export function setEditorLayoutSuspended(suspended: boolean): void {
-  if (layoutSuspended === suspended) return;
-  layoutSuspended = suspended;
-  if (suspended) return;
-  // On resume, force a single layout pass on every tracked editor so any
-  // container-size changes that happened during the suspension are picked
-  // up. Skips disposed editors.
-  for (const editor of trackedEditors) {
-    try {
-      const node = editor.getContainerDomNode();
-      if (node && node.isConnected) editor.layout();
-    } catch {
-      /* disposed mid-iter */
-    }
-  }
-}
-
-export function observeEditorLayout(
-  editor: Monaco.editor.IStandaloneCodeEditor,
-): () => void {
-  const container = editor.getContainerDomNode().parentElement;
-  if (!container || typeof ResizeObserver === 'undefined') {
-    return () => {};
-  }
-
-  trackedEditors.add(editor);
-
-  let rafId = 0;
-  let lastW = 0;
-  let lastH = 0;
-
-  const flush = () => {
-    rafId = 0;
-    if (layoutSuspended) return;
-    const node = editor.getContainerDomNode();
-    if (!node || !node.isConnected) return;
-    editor.layout();
-  };
-
-  const ro = new ResizeObserver((entries) => {
-    // Skip if dimensions didn't actually change (RO fires on style writes
-    // that don't visually change box size, e.g. transform).
-    for (const entry of entries) {
-      const cr = entry.contentRect;
-      if (cr.width === lastW && cr.height === lastH) continue;
-      lastW = cr.width;
-      lastH = cr.height;
-    }
-    if (layoutSuspended) return;        // dropped — `setEditorLayoutSuspended(false)` will replay
-    if (rafId) return;
-    rafId = requestAnimationFrame(flush);
-  });
-
-  ro.observe(container);
-  const dispose = () => {
-    if (rafId) cancelAnimationFrame(rafId);
-    ro.disconnect();
-    trackedEditors.delete(editor);
-  };
-  editor.onDidDispose(dispose);
-  return dispose;
 }
 
 // ─── Language-id mapping ───────────────────────────────────────────────

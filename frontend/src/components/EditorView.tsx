@@ -3,9 +3,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
+import type * as Monaco from 'monaco-editor';
 import { FileExplorer } from './FileExplorer';
 import { CollabBar } from './CollabBar';
 import { ChatPanel } from './ChatPanel';
+import { Sash } from './Sash';
+import { useSashResize } from '@/hooks/useSashResize';
 import { StoredFile } from '@/services/storageService';
 import { SharedFileInfo } from '@/services/collabService';
 import { useTheme } from '@/hooks/useTheme';
@@ -39,7 +42,6 @@ import {
   GitHubLight,
 } from 'developer-icons';
 import type { useCollabRoom } from '@/hooks/useCollabRoom';
-import { setEditorLayoutSuspended } from '@/lib/monacoEditorConfig';
 
 // Dynamic import keeps Monaco out of the SSR/build path entirely.
 const ModernMonacoEditor = dynamic(
@@ -144,131 +146,133 @@ export function EditorView({
   const [cursorPosition, setCursorPosition] = useState({ ln: 1, col: 1 });
   const [selectionCount, setSelectionCount] = useState(0);
   const [fontSize, setFontSize] = useState(16);
+  const chatPanelRef = useRef<HTMLDivElement>(null);
+  const chatWidthRef = useRef(0);
+  const chatAnimationRef = useRef<number | null>(null);
 
-  // Sidebar resize — VSCode-style. Width is a CSS variable so the live drag
-  // can update the DOM directly via ref without re-rendering React 60×/sec.
-  // State is the committed value (persisted to localStorage on pointerup).
-  const SIDEBAR_MIN = 200;
-  const SIDEBAR_MAX = 480;
-  const SIDEBAR_DEFAULT = 256;
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
-  const [isResizing, setIsResizing] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const editorLayoutFnRef = useRef<
+    ((w: number, h: number, postponeRendering?: boolean) => void) | null
+  >(null);
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 
-  useEffect(() => {
-    if (typeof localStorage === 'undefined') return;
-    const saved = localStorage.getItem('editor-sidebar-width');
-    if (saved) {
-      const n = parseInt(saved, 10);
-      if (Number.isFinite(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) {
-        setSidebarWidth(n);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem('editor-sidebar-width', sidebarWidth.toString());
-  }, [sidebarWidth]);
-
-  const handleResizePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      const startW = sidebarRef.current?.offsetWidth ?? sidebarWidth;
-      let liveW = startW;
-
-      // Suspend Monaco's ResizeObserver-driven `editor.layout()` for the
-      // duration of the drag. Re-laying Monaco out 120×/sec is the main
-      // reason the sidebar edge appears to lag the cursor — disabling it
-      // turns the drag into pure CSS-variable writes, which the compositor
-      // handles at the refresh rate of the display.
-      setEditorLayoutSuspended(true);
-      document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'col-resize';
-      setIsResizing(true);
-
-      // Capture the pointer on the sash so subsequent moves are delivered
-      // even when the cursor strays outside the element. Pointer capture
-      // is what VSCode's `Sash` uses for this exact case.
-      const sash = e.currentTarget;
-      try {
-        sash.setPointerCapture(e.pointerId);
-      } catch {
-        /* not all browsers honour capture on synthetic events */
-      }
-
-      // Write the CSS variable directly in the move handler. The browser
-      // already folds multiple style writes into a single paint per frame,
-      // so rAF coalescing here would just add a frame of latency.
-      const onMove = (ev: PointerEvent) => {
-        const next = startW + (ev.clientX - startX);
-        const clamped =
-          next < SIDEBAR_MIN ? SIDEBAR_MIN : next > SIDEBAR_MAX ? SIDEBAR_MAX : next;
-        if (clamped === liveW) return;
-        liveW = clamped;
-        sidebarRef.current?.style.setProperty('--sidebar-w', `${liveW}px`);
-      };
-      const onUp = () => {
-        document.body.style.userSelect = '';
-        document.body.style.cursor = '';
-        setIsResizing(false);
-        setSidebarWidth(liveW); // single React update on release → persists
-        setEditorLayoutSuspended(false); // replays one editor.layout()
-        try {
-          sash.releasePointerCapture(e.pointerId);
-        } catch {
-          /* */
-        }
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onUp);
-      };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
+  const handleEditorLayout = useCallback(
+    (width: number, height: number, postponeRendering = false) => {
+      editorLayoutFnRef.current?.(Math.round(width), Math.round(height), postponeRendering);
     },
-    [sidebarWidth],
+    [],
   );
 
-  const handleResizeDoubleClick = useCallback(() => {
-    setSidebarWidth(SIDEBAR_DEFAULT);
+  const handleResizeActiveChange = useCallback((active: boolean) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    if (active) {
+      editor.updateOptions({
+        wordWrapOverride1: 'off',
+        wordWrapOverride2: 'off',
+      });
+      return;
+    }
+
+    editor.updateOptions({
+      wordWrapOverride1: 'inherit',
+      wordWrapOverride2: 'inherit',
+    });
+
+    const container = editorContainerRef.current;
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      editor.layout({ width: Math.round(rect.width), height: Math.round(rect.height) });
+    } else {
+      editor.layout();
+    }
   }, []);
 
-  // Keyboard resize — mirrors VSCode's Sash: Arrow ±10px, Shift+Arrow ±50px,
-  // Home → min, End → max, Enter/Space → reset to default. Lets users (and
-  // a11y tools) resize without a pointer.
-  const handleResizeKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    const step = e.shiftKey ? 50 : 10;
-    let next: number | null = null;
-    switch (e.key) {
-      case 'ArrowLeft':
-        next = Math.max(SIDEBAR_MIN, sidebarWidth - step);
-        break;
-      case 'ArrowRight':
-        next = Math.min(SIDEBAR_MAX, sidebarWidth + step);
-        break;
-      case 'Home':
-        next = SIDEBAR_MIN;
-        break;
-      case 'End':
-        next = SIDEBAR_MAX;
-        break;
-      case 'Enter':
-      case ' ':
-        next = SIDEBAR_DEFAULT;
-        break;
-      default:
+  const {
+    sidebarWidth,
+    rootRef,
+    sidebarRef,
+    editorContainerRef,
+    handleResizeStart,
+    handleResize,
+    handleResizeEnd,
+    setExternalResizeActive,
+  } = useSashResize(handleEditorLayout, handleResizeActiveChange);
+
+  const animateChatPanel = useCallback((open: boolean) => {
+    const root = rootRef.current;
+    const chatPanel = chatPanelRef.current;
+    const editorContainer = editorContainerRef.current;
+    if (!root || !chatPanel || !editorContainer) {
+      setIsChatOpen(open);
+      return;
+    }
+
+    if (chatAnimationRef.current !== null) {
+      cancelAnimationFrame(chatAnimationRef.current);
+      chatAnimationRef.current = null;
+      setExternalResizeActive(false);
+    }
+
+    setIsChatOpen(open);
+    setExternalResizeActive(true);
+    handleResizeActiveChange(true);
+
+    const startWidth = chatWidthRef.current;
+    const endWidth = open ? 300 : 0;
+    const duration = 200;
+    const startedAt = performance.now();
+    const rootWidth = root.clientWidth;
+    const sidebarWidthNow = sidebarRef.current?.offsetWidth ?? sidebarWidth;
+    const editorHeight = editorContainer.clientHeight;
+
+    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = easeOutCubic(progress);
+      const width = startWidth + (endWidth - startWidth) * eased;
+      chatWidthRef.current = width;
+
+      chatPanel.style.width = `${width}px`;
+      const editorWidth = rootWidth - sidebarWidthNow - width;
+      if (editorWidth > 0 && editorHeight > 0) {
+        handleEditorLayout(editorWidth, editorHeight, progress < 1);
+      }
+
+      if (progress < 1) {
+        chatAnimationRef.current = requestAnimationFrame(step);
         return;
-    }
-    e.preventDefault();
-    if (next !== null && next !== sidebarWidth) {
-      // Update CSS variable + state in one go — no Monaco-suspension dance
-      // needed because each keypress is a single discrete step, not a drag.
-      sidebarRef.current?.style.setProperty('--sidebar-w', `${next}px`);
-      setSidebarWidth(next);
-    }
-  }, [sidebarWidth]);
+      }
+
+      chatAnimationRef.current = null;
+      setExternalResizeActive(false);
+      handleResizeActiveChange(false);
+    };
+
+    chatAnimationRef.current = requestAnimationFrame(step);
+  }, [
+    handleEditorLayout,
+    handleResizeActiveChange,
+    rootRef,
+    setExternalResizeActive,
+    sidebarRef,
+    sidebarWidth,
+  ]);
+
+  const handleEditorReady = useCallback(
+    (ed: Monaco.editor.IStandaloneCodeEditor) => {
+      editorRef.current = ed;
+      editorLayoutFnRef.current = (w, h, postponeRendering = false) =>
+        ed.layout({ width: w, height: h }, postponeRendering);
+      
+      // Trigger an initial layout calculation using Monaco's internal DOM reader
+      ed.layout();
+    },
+    [],
+  );
+
+
 
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
@@ -320,8 +324,12 @@ export function EditorView({
   useEffect(() => {
     return () => {
       if (statusRafRef.current) cancelAnimationFrame(statusRafRef.current);
+      if (chatAnimationRef.current !== null) {
+        cancelAnimationFrame(chatAnimationRef.current);
+        setExternalResizeActive(false);
+      }
     };
-  }, []);
+  }, [setExternalResizeActive]);
 
   useEffect(() => {
     pendingCursorRef.current = { ln: 1, col: 1 };
@@ -374,6 +382,13 @@ export function EditorView({
     collab.status === 'connected' ||
     collab.status === 'waiting-approval' ||
     collab.status === 'connecting';
+
+  useEffect(() => {
+    if (!isInRoom) {
+      chatWidthRef.current = 0;
+      setIsChatOpen(false);
+    }
+  }, [isInRoom]);
 
   const sharedFileIds = useMemo(
     () => new Set(collab.sharedFiles.map((f) => f.id)),
@@ -462,9 +477,24 @@ export function EditorView({
         </div>
 
         <div className="flex items-center gap-2">
+          {isInRoom && collab.roomId && (
+            <CollabBar
+              roomId={collab.roomId}
+              status={collab.status}
+              isHost={collab.isHost}
+              isLocked={collab.isLocked}
+              members={collab.members}
+              pending={collab.pending}
+              onApprove={collab.approveJoin}
+              onReject={collab.rejectJoin}
+              onLeave={collab.leaveRoom}
+              onKick={collab.kickMember}
+              onLockRoom={collab.lockRoom}
+            />
+          )}
           {isInRoom && (
             <button
-              onClick={() => setIsChatOpen((prev) => !prev)}
+              onClick={() => animateChatPanel(!isChatOpen)}
               className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
                 isChatOpen
                   ? isDark
@@ -490,18 +520,32 @@ export function EditorView({
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+      {/* Main content — CSS Grid layout.
+           Desktop columns: [sidebar: var(--sidebar-w)] [editor: 1fr] [chat: 0px or 300px]
+           The chat column width is interpolated by the browser's grid engine which avoids
+           JS-driven width animation (which triggers layout reflow every frame).
+           Mobile: sidebar is fixed-overlay, grid is [editor: 1fr] [chat: 0 or 300px]. */}
+      <div
+        ref={rootRef}
+        className="flex-1 min-h-0 overflow-hidden relative flex flex-row"
+      >
+        {/* Mobile sidebar backdrop — no backdrop-blur (GPU-heavy) */}
         {isSidebarOpen && (
           <div
-            className="fixed inset-0 z-40 bg-black/50 md:hidden backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 z-40 bg-black/50 md:hidden"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
+        {/* Sidebar — fixed overlay on mobile (with transform transition),
+            relative grid cell on desktop (no transition, width via CSS var). */}
         <div
           ref={sidebarRef}
-          style={{ ['--sidebar-w' as string]: `${sidebarWidth}px` }}
-          className={`fixed md:relative inset-y-0 left-0 z-50 w-[280px] md:w-[var(--sidebar-w)] transform transition-transform duration-300 ease-in-out md:translate-none flex flex-col ${bg} border-r ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'} md:border-r-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          className={`fixed md:relative inset-y-0 left-0 z-50 flex flex-col ${bg} border-r ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'} md:border-r-0 transition-transform duration-200 ease-out md:transition-none ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 will-change-transform md:will-change-auto shrink-0`}
+          style={{
+            width: `${sidebarWidth}px`,
+            minWidth: `${sidebarWidth}px`,
+          }}
         >
           <div
             className={`flex md:hidden items-center justify-between px-4 py-3 border-b ${isDark ? 'border-slate-800/50' : 'border-slate-300/50'}`}
@@ -571,34 +615,20 @@ export function EditorView({
             )}
           </div>
 
-          {/* VSCode-style sash — 8 px hit area on the sidebar's right edge
-              with a 3 px Catppuccin-mauve band that fades in on hover and
-              stays solid during the drag. Hidden on mobile.
-              Keyboard support: tab to focus, then Arrow keys to resize. */}
-          <div
-            onPointerDown={handleResizePointerDown}
-            onDoubleClick={handleResizeDoubleClick}
-            onKeyDown={handleResizeKeyDown}
-            tabIndex={0}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            aria-valuemin={SIDEBAR_MIN}
-            aria-valuemax={SIDEBAR_MAX}
-            aria-valuenow={sidebarWidth}
-            className="hidden md:block group/resize absolute top-0 right-0 h-full w-2 -mr-1 cursor-col-resize z-50 touch-none select-none outline-none focus-visible:outline-none"
-          >
-            <div
-              className={`h-full w-[3px] ml-[2px] transition-colors duration-150 ease-out ${
-                isResizing
-                  ? 'bg-[#cba6f7]'
-                  : 'bg-transparent group-hover/resize:bg-[#cba6f7] group-focus-visible/resize:bg-[#cba6f7]'
-              }`}
+          <div className="absolute top-0 right-0 h-full z-50 hidden md:block">
+            <Sash
+              onResizeStart={handleResizeStart}
+              onResize={handleResize}
+              onResizeEnd={handleResizeEnd}
             />
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Editor area */}
+        <div
+          ref={editorContainerRef}
+          className="flex flex-col min-w-0 flex-1 overflow-hidden relative"
+        >
           {!activeFile ? (
             <div className={`flex-1 flex flex-col items-center justify-center ${bgEditor}`}>
               <div className="text-center max-w-md px-8">
@@ -618,7 +648,19 @@ export function EditorView({
               </div>
             </div>
           ) : (
-            <div className="flex-1 relative overflow-hidden">
+            <div
+              className="flex-1 relative overflow-hidden"
+              // `contain: layout paint style` isolates Monaco from the
+              // browser's reflow cascade. Without it, every container resize
+              // forces the whole document to relayout; the editor's own
+              // layout pass then changes scrollbar/wrap geometry, which the
+              // outer layout sees and queues another reflow — the "rapidly
+              // fitting into place" loop. With containment, Monaco's
+              // internals stay a self-contained layer that the browser can
+              // resize and composite without re-running outer layout, which
+              // is the single biggest win for resize latency.
+              style={{ contain: 'layout paint style' }}
+            >
               {collab.status === 'waiting-approval' && (
                 <div
                   className={`absolute inset-0 z-10 flex flex-col items-center justify-center ${isDark ? 'bg-[#232332]/90' : 'bg-[#EEF1F5]/90'} backdrop-blur-xs`}
@@ -650,6 +692,7 @@ export function EditorView({
                   onChange={(code) => onCodeChange(activeFile.id, code)}
                   onCursorChange={handleCursorChange}
                   onSelectionChange={handleSelectionChange}
+                  onEditorReady={handleEditorReady}
                 />
               ) : (
                 <ModernMonacoEditor
@@ -659,20 +702,32 @@ export function EditorView({
                   onChange={(code) => onCodeChange(activeFile.id, code)}
                   onCursorChange={handleCursorChange}
                   onSelectionChange={handleSelectionChange}
+                  onEditorReady={handleEditorReady}
                 />
               )}
             </div>
           )}
         </div>
 
+        {/* Chat panel — sits in the 3rd grid column (0px when closed, 300px when open).
+            The grid-template-columns transition handles the animation;
+            overflow:hidden on this cell clips content during the transition. */}
         {isInRoom && (
-          <ChatPanel
-            isOpen={isChatOpen}
-            messages={collab.chatMessages}
-            selfPeerId={collab.peerId}
-            onSendMessage={collab.sendChatMessage}
-            onClose={() => setIsChatOpen(false)}
-          />
+          <div
+            ref={chatPanelRef}
+            className="overflow-hidden shrink-0"
+            style={{
+              width: `${chatWidthRef.current}px`,
+            }}
+          >
+            <ChatPanel
+              isOpen={isChatOpen}
+              messages={collab.chatMessages}
+              selfPeerId={collab.peerId}
+              onSendMessage={collab.sendChatMessage}
+              onClose={() => setIsChatOpen(false)}
+            />
+          </div>
         )}
       </div>
 
@@ -717,19 +772,6 @@ export function EditorView({
           )}
         </div>
       </div>
-
-      {isInRoom && collab.roomId && (
-        <CollabBar
-          roomId={collab.roomId}
-          status={collab.status}
-          isHost={collab.isHost}
-          members={collab.members}
-          pending={collab.pending}
-          onApprove={collab.approveJoin}
-          onReject={collab.rejectJoin}
-          onLeave={collab.leaveRoom}
-        />
-      )}
 
       {collab.toasts.length > 0 && (
         <div className="fixed top-4 right-4 z-100 flex flex-col gap-2 pointer-events-none">

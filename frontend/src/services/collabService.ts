@@ -67,6 +67,10 @@ export interface CollabEvents {
   onChatMessage: (message: ChatMessage) => void;
   /** Fired when the control socket closes without `destroy()` being called. */
   onConnectionLost: () => void;
+  /** Fired when this peer is kicked by the host. */
+  onKicked: () => void;
+  /** Fired when the room lock state changes. */
+  onRoomLocked: (locked: boolean) => void;
 }
 
 export const CURSOR_COLORS = [
@@ -381,6 +385,14 @@ export class CollabProvider {
     this._sendJson({ type: 'chat-message', text });
   }
 
+  kickMember(peerId: string) {
+    this._sendJson({ type: 'kick', peerId });
+  }
+
+  lockRoom(locked: boolean) {
+    this._sendJson({ type: 'lock-room', locked });
+  }
+
   openFileConnection(fileId: string): DocConnection {
     let conn = this.docConnections.get(fileId);
     if (conn) return conn;
@@ -498,6 +510,14 @@ export class CollabProvider {
       case 'error':
         this.events.onError((msg.message as string) || 'Unknown error');
         this._setStatus('error');
+        break;
+
+      case 'kicked':
+        this.events.onKicked();
+        break;
+
+      case 'room-locked':
+        this.events.onRoomLocked(msg.locked as boolean);
         break;
     }
   }

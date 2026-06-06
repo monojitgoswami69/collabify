@@ -3,7 +3,7 @@
 import { useState, useEffect, memo } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useMountTransition } from '@/hooks/useMountTransition';
-import { X, Users, Plus, LogIn, Copy, Check } from 'lucide-react';
+import { X, Users, Plus, LogIn } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -32,20 +32,13 @@ export const CollabRoomModal = memo(function CollabRoomModal({
   onClearJoinError,
 }: Props) {
   const { isDark } = useTheme();
-  const [tab, setTab] = useState<'create' | 'join'>('create');
   const [displayName, setDisplayName] = useState('');
   const [roomId, setRoomId] = useState('');
-  const [generatedId, setGeneratedId] = useState('');
-  const [copied, setCopied] = useState(false);
 
-  // Initialise once on the client (avoids hydration mismatch & ensures fresh ID each open).
+  // Initialise once on the client (avoids hydration mismatch).
   useEffect(() => {
     setDisplayName(localStorage.getItem('codecollab_displayName') || '');
   }, []);
-
-  useEffect(() => {
-    if (!generatedId) setGeneratedId(generateRoomId());
-  }, [generatedId]);
 
   useEffect(() => {
     if (typeof localStorage !== 'undefined') {
@@ -64,15 +57,10 @@ export const CollabRoomModal = memo(function CollabRoomModal({
   const inputBorder = isDark ? 'border-slate-600' : 'border-slate-300';
   const inputText = isDark ? 'text-white' : 'text-slate-900';
 
-  const handleCopyId = () => {
-    navigator.clipboard.writeText(generatedId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleCreate = () => {
     if (!displayName.trim()) return;
-    onCreateRoom(displayName.trim(), generatedId);
+    const newId = generateRoomId();
+    onCreateRoom(displayName.trim(), newId);
     onClose();
   };
 
@@ -84,14 +72,14 @@ export const CollabRoomModal = memo(function CollabRoomModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
         className={`absolute inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300 ease-out ${isActive ? 'opacity-100' : 'opacity-0'}`}
       />
       <div
-        className={`relative w-full max-w-md mx-4 rounded-2xl ${bg} border ${border} shadow-2xl overflow-hidden transition-all duration-300 ease-out transform ${isActive ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-95 opacity-0'}`}
+        className={`relative w-full max-w-2xl rounded-2xl ${bg} border ${border} shadow-2xl overflow-hidden transition-all duration-300 ease-out transform ${isActive ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-4 scale-95 opacity-0'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className={`flex items-center justify-between px-6 py-4 border-b ${border}`}>
@@ -107,77 +95,58 @@ export const CollabRoomModal = memo(function CollabRoomModal({
           </button>
         </div>
 
-        <div className={`flex border-b ${border}`}>
-          {(['create', 'join'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-3 text-sm font-bold transition-all relative ${
-                tab === t
-                  ? `${textP} after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-[#CAA4F7]`
-                  : `${textM} hover:${textP}`
-              }`}
-            >
-              {t === 'create' ? (
-                <span className="flex items-center justify-center gap-1.5">
-                  <Plus size={14} /> Host Room
-                </span>
-              ) : (
-                <span className="flex items-center justify-center gap-1.5">
-                  <LogIn size={14} /> Join Room
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className={`block text-xs font-bold mb-1.5 ${textM}`}>DISPLAY NAME</label>
+        <div className="px-6 py-6 space-y-6">
+          <div className="max-w-md mx-auto">
+            <label className={`block text-xs font-bold mb-1.5 ${textM} text-center`}>DISPLAY NAME</label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="e.g. John"
               maxLength={30}
-              className={`w-full px-3 py-2.5 rounded-lg border ${inputBg} ${inputBorder} ${inputText} text-sm placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all`}
+              className={`w-full px-4 py-3 rounded-xl border ${inputBg} ${inputBorder} ${inputText} text-base text-center placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all font-medium`}
             />
           </div>
 
-          <div className="grid grid-cols-1">
-            <div
-              className={`col-start-1 row-start-1 flex flex-col space-y-4 transition-all duration-300 ${tab === 'create' ? 'opacity-100 z-10' : 'opacity-0 -z-10 invisible'}`}
-            >
-              <div>
-                <label className={`block text-xs font-bold mb-1.5 ${textM}`}>ROOM ID</label>
-                <div className="flex gap-2">
-                  <div
-                    className={`flex-1 flex items-center px-4 py-2.5 rounded-lg border ${inputBg} ${inputBorder} font-mono text-lg tracking-[0.3em] ${textP} font-bold select-all`}
-                  >
-                    {generatedId}
-                  </div>
-                  <button
-                    onClick={handleCopyId}
-                    className="flex items-center justify-center px-3 rounded-lg bg-[#CAA4F7]/20 hover:bg-[#CAA4F7]/30 text-[#CAA4F7] border border-[#CAA4F7]/30 transition-all active:scale-95"
-                    title="Copy Room ID"
-                  >
-                    {copied ? <Check size={16} /> : <Copy size={16} />}
-                  </button>
+          <div className={`border-t ${border} pt-6 grid grid-cols-1 md:grid-cols-2 gap-8`}>
+            {/* Host Section */}
+            <div className="flex flex-col space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`p-2 rounded-lg ${isDark ? 'bg-purple-500/10' : 'bg-purple-50'} text-[#CAA4F7]`}>
+                  <Plus size={20} />
+                </div>
+                <div>
+                  <h3 className={`font-bold ${textP}`}>Host Room</h3>
+                  <p className={`text-xs ${textM}`}>Create a new room and invite others</p>
                 </div>
               </div>
 
-              <button
-                onClick={handleCreate}
-                disabled={!displayName.trim()}
-                className="w-full py-3 rounded-lg bg-[#CAA4F7] hover:bg-[#D4B5F9] text-[#1E1E2A] font-bold text-sm transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none shadow-md mt-auto"
-              >
-                Create & Host Room
-              </button>
+              <div className="flex-1 flex flex-col justify-end">
+                <button
+                  onClick={handleCreate}
+                  disabled={!displayName.trim()}
+                  className="w-full py-3.5 rounded-xl bg-[#CAA4F7] hover:bg-[#D4B5F9] text-[#1E1E2A] font-bold text-sm transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none shadow-md"
+                >
+                  Create & Host Room
+                </button>
+              </div>
             </div>
 
-            <div
-              className={`col-start-1 row-start-1 flex flex-col space-y-4 transition-all duration-300 ${tab === 'join' ? 'opacity-100 z-10' : 'opacity-0 -z-10 invisible'}`}
-            >
+            {/* Vertical Divider for md */}
+            <div className={`hidden md:block absolute left-1/2 top-[160px] bottom-6 w-px ${border} -translate-x-1/2`} />
+
+            {/* Join Section */}
+            <div className="flex flex-col space-y-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`p-2 rounded-lg ${isDark ? 'bg-blue-500/10' : 'bg-blue-50'} text-blue-400`}>
+                  <LogIn size={20} />
+                </div>
+                <div>
+                  <h3 className={`font-bold ${textP}`}>Join Room</h3>
+                  <p className={`text-xs ${textM}`}>Enter a room code to join existing</p>
+                </div>
+              </div>
+
               <div>
                 <label className={`block text-xs font-bold mb-1.5 ${textM}`}>ROOM ID</label>
                 <input
@@ -196,13 +165,19 @@ export const CollabRoomModal = memo(function CollabRoomModal({
                 )}
               </div>
 
-              <button
-                onClick={handleJoin}
-                disabled={!displayName.trim() || !roomId.trim()}
-                className="w-full py-3 rounded-lg bg-[#CAA4F7] hover:bg-[#D4B5F9] text-[#1E1E2A] font-bold text-sm transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none shadow-md mt-auto"
-              >
-                Request to Join
-              </button>
+              <div className="flex-1 flex flex-col justify-end">
+                <button
+                  onClick={handleJoin}
+                  disabled={!displayName.trim() || !roomId.trim()}
+                  className={`w-full py-3.5 rounded-xl border-2 font-bold text-sm transition-all active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none shadow-sm ${
+                    isDark 
+                      ? 'bg-transparent border-[#CAA4F7] text-[#CAA4F7] hover:bg-[#CAA4F7]/10' 
+                      : 'bg-white border-[#CAA4F7] text-[#9B6DD7] hover:bg-slate-50'
+                  }`}
+                >
+                  Request to Join
+                </button>
+              </div>
             </div>
           </div>
         </div>

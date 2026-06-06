@@ -12,6 +12,7 @@ export class Room {
   constructor(roomId) {
     this.roomId = roomId;
     this.hostId = null;
+    this.locked = false;
 
     /** @type {Map<string, Member>} */
     this.members = new Map();

@@ -74,6 +74,10 @@ export function createRoomHandler({ rooms, docs }) {
             sendJson(ws, { type: OUT.ERROR, message: 'Room does not exist' });
             return;
           }
+          if (room.locked) {
+            sendJson(ws, { type: OUT.ERROR, message: 'Room is locked' });
+            return;
+          }
           const displayName = sanitizeStr(msg.displayName, 'Guest', 40);
           const color = sanitizeColor(msg.color, CURSOR_COLORS[1]);
           room.addPending(peerId, ws, displayName, color);
@@ -191,6 +195,37 @@ export function createRoomHandler({ rooms, docs }) {
             timestamp: now,
           };
           room.broadcastJson(chatMsg);
+          return;
+        }
+
+        case CONTROL.KICK: {
+          if (!room || !room.isHost(peerId)) return;
+          const target = typeof msg.peerId === 'string' ? msg.peerId : '';
+          if (!target || target === peerId) return; // can't kick yourself
+          const kicked = room.removeMember(target);
+          if (!kicked) return;
+          sendJson(kicked.ws, { type: OUT.KICKED });
+          try { kicked.ws.close(1000, 'kicked'); } catch {}
+          room.broadcastJson({ type: OUT.PEER_LEFT, peerId: target, displayName: kicked.displayName });
+          room.broadcastMembersUpdate();
+          log.info('room', `kicked ${roomId} ${target} (${kicked.displayName})`);
+          return;
+        }
+
+        case CONTROL.LOCK_ROOM: {
+          if (!room || !room.isHost(peerId)) return;
+          const locked = typeof msg.locked === 'boolean' ? msg.locked : !room.locked;
+          room.locked = locked;
+          // When locking, reject all pending requests
+          if (locked) {
+            for (const [pid, p] of room.pending) {
+              sendJson(p.ws, { type: OUT.REJECTED });
+            }
+            room.pending.clear();
+          }
+          room.broadcastJson({ type: OUT.ROOM_LOCKED, locked });
+          room.broadcastMembersUpdate();
+          log.info('room', `room ${roomId} locked=${locked}`);
           return;
         }
 

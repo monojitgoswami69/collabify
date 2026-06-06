@@ -188,6 +188,7 @@ interface TreeItemProps {
   toggleExpand: (path: string) => void;
   isDark: boolean;
   isCollabSection?: boolean;
+  isDraggable?: boolean;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
 }
@@ -205,6 +206,7 @@ const TreeItem = memo(function TreeItem({
   toggleExpand,
   isDark,
   isCollabSection,
+  isDraggable,
   onDragStart,
   onDragEnd,
 }: TreeItemProps) {
@@ -281,6 +283,7 @@ const TreeItem = memo(function TreeItem({
               toggleExpand={toggleExpand}
               isDark={isDark}
               isCollabSection={isCollabSection}
+              isDraggable={isDraggable}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
@@ -306,7 +309,7 @@ const TreeItem = memo(function TreeItem({
           onContextMenu(e, node.fileId, !!isCollabSection);
         }
       }}
-      draggable
+      draggable={isDraggable}
       onDragStart={() => node.fileId && onDragStart(node.fileId)}
       onDragEnd={onDragEnd}
       className={`w-full flex items-center gap-2 py-1.5 pr-2 rounded group transition-all duration-150 ease-out cursor-grab active:cursor-grabbing ${
@@ -670,10 +673,11 @@ export const FileExplorer = memo(function FileExplorer({
                 onFileSelect={onFileSelect}
                 onFileDelete={onFileDelete}
                 onRepoDelete={onRepoDelete}
-                onContextMenu={handleContextMenu}
+                onContextMenu={isInRoom && isHost ? handleContextMenu : undefined}
                 expandedPaths={expandedPaths}
                 toggleExpand={handleToggleExpand}
                 isDark={isDark}
+                isDraggable={isInRoom}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
               />

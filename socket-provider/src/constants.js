@@ -16,6 +16,8 @@ export const CONTROL = {
   CHAT_MESSAGE: 'chat-message',
   LEAVE: 'leave',
   PING: 'ping',
+  KICK: 'kick',
+  LOCK_ROOM: 'lock-room',
 };
 
 // Outbound JSON message types
@@ -35,6 +37,8 @@ export const OUT = {
   CHAT_MESSAGE: 'chat-message',
   ERROR: 'error',
   PONG: 'pong',
+  KICKED: 'kicked',
+  ROOM_LOCKED: 'room-locked',
 };
 
 // Predefined cursor colors (matches client)

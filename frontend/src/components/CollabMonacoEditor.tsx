@@ -13,7 +13,6 @@ import { configureMonacoOnce } from '@/lib/monacoBootstrap';
 import { defineCatppuccinThemes } from '@/lib/monacoThemes';
 import {
   buildEditorOptions,
-  observeEditorLayout,
   toMonacoLanguageId,
 } from '@/lib/monacoEditorConfig';
 import { syncPeerCursors, clearAllPeers } from '@/lib/peerCursorStyles';
@@ -26,6 +25,7 @@ interface Props {
   onChange: (value: string) => void;
   onCursorChange: (ln: number, col: number) => void;
   onSelectionChange: (count: number) => void;
+  onEditorReady?: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
 }
 
 export function CollabMonacoEditor({
@@ -35,6 +35,7 @@ export function CollabMonacoEditor({
   provider,
   onCursorChange,
   onSelectionChange,
+  onEditorReady,
 }: Props) {
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -92,6 +93,7 @@ export function CollabMonacoEditor({
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    onEditorReady?.(editor);
 
     monaco.editor.setTheme(theme === 'dark' ? 'catppuccin-mocha' : 'catppuccin-latte');
 
@@ -107,8 +109,6 @@ export function CollabMonacoEditor({
       const model = editor.getModel();
       if (model) onSelectionChange(model.getValueInRange(sel).length);
     });
-
-    observeEditorLayout(editor);
 
     setEditorReady(true);
   };

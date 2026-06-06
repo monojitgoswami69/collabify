@@ -187,5 +187,47 @@ html.light .monaco-editor .minimap-slider.active .minimap-slider-horizontal {
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
-  mix-blend-mode: normal;
+}
+
+/* ─── Sash Drag Styles ──────────────────────────────────────────────── */
+/* Applied to body during sash drag — prevents text selection artifacts */
+body.sash-dragging {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: col-resize !important;
+}
+
+/* Iframes can steal pointer streams in some browsers during document drags. */
+body.sash-dragging iframe {
+  pointer-events: none !important;
+}
+
+/* Sash hover + active visual feedback */
+.sash-handle {
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.sash-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px; /* expand hit area 4px on each side */
+  z-index: 1;
+  cursor: col-resize;
+}
+
+.sash-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.sash-handle:hover::after,
+body.sash-dragging .sash-handle::after {
+  background: #007acc;
 }

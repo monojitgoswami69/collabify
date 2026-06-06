@@ -23,6 +23,7 @@ export interface CollabState {
   status: CollabStatus;
   roomId: string | null;
   isHost: boolean;
+  isLocked: boolean;
   displayName: string;
   color: string;
   members: CollabMember[];
@@ -39,6 +40,7 @@ export function useCollabRoom() {
     status: 'disconnected',
     roomId: null,
     isHost: false,
+    isLocked: false,
     displayName: '',
     color: getRandomColor(),
     members: [],
@@ -182,12 +184,35 @@ export function useCollabRoom() {
           status: 'disconnected',
           roomId: null,
           isHost: false,
+          isLocked: false,
           members: [],
           pending: [],
           sharedFiles: [],
           provider: null,
           peerId: '',
         }));
+      },
+      onKicked: () => {
+        addToast('You were kicked from the room by the host.', 'error');
+        providerRef.current?.destroy();
+        providerRef.current = null;
+        setState((prev) => ({
+          ...prev,
+          status: 'disconnected',
+          roomId: null,
+          isHost: false,
+          isLocked: false,
+          members: [],
+          pending: [],
+          sharedFiles: [],
+          provider: null,
+          chatMessages: [],
+          peerId: '',
+        }));
+      },
+      onRoomLocked: (locked) => {
+        setState((prev) => ({ ...prev, isLocked: locked }));
+        addToast(locked ? 'Room is now locked' : 'Room is now open', 'info');
       },
     }),
     [addToast],
@@ -206,6 +231,7 @@ export function useCollabRoom() {
         color,
         provider,
         isHost: true,
+        isLocked: false,
         status: 'connecting',
         members: [],
         pending: [],
@@ -233,6 +259,7 @@ export function useCollabRoom() {
         color,
         provider,
         isHost: false,
+        isLocked: false,
         status: 'connecting',
         members: [],
         pending: [],
@@ -256,6 +283,7 @@ export function useCollabRoom() {
       status: 'disconnected',
       roomId: null,
       isHost: false,
+      isLocked: false,
       members: [],
       pending: [],
       sharedFiles: [],
@@ -292,6 +320,14 @@ export function useCollabRoom() {
     providerRef.current?.sendChatMessage(text);
   }, []);
 
+  const kickMember = useCallback((peerId: string) => {
+    providerRef.current?.kickMember(peerId);
+  }, []);
+
+  const lockRoom = useCallback((locked: boolean) => {
+    providerRef.current?.lockRoom(locked);
+  }, []);
+
   useEffect(() => {
     return () => {
       providerRef.current?.destroy();
@@ -312,5 +348,7 @@ export function useCollabRoom() {
     reorderFiles,
     dismissToast,
     sendChatMessage,
+    kickMember,
+    lockRoom,
   };
 }
