@@ -1,9 +1,20 @@
 // Room — in-memory state for a single collab room.
 // Membership: members vs. pending join requests.
+//
+// Doc access: every approved member (and the host) holds a per-member doc
+// token, delivered over the control channel and required by /doc connections.
+// Revoking a member (kick / disconnect) revokes their token and closes their
+// doc sockets — see DocRegistry.detachOwner.
 
+import { randomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { OUT } from './constants.js';
 import { sendJson } from './util.js';
+
+/** Cryptographically random per-member doc capability. */
+export function newDocToken() {
+  return randomBytes(24).toString('base64url');
+}
 
 export class Room {
   /**
@@ -21,6 +32,9 @@ export class Room {
     /** Insertion-ordered map of shared file metadata + seed content. */
     /** @type {Map<string, SharedFile>} */
     this.sharedFiles = new Map();
+    /** peerId -> per-member doc token (revoked on kick/leave). */
+    /** @type {Map<string, string>} */
+    this.docTokens = new Map();
   }
 
   // ── Membership ────────────────────────────────────────────────────────
@@ -28,6 +42,7 @@ export class Room {
   addHost(peerId, ws, displayName, color) {
     this.hostId = peerId;
     this.members.set(peerId, { ws, displayName, color });
+    this.docTokens.set(peerId, newDocToken());
   }
 
   addPending(peerId, ws, displayName, color) {
@@ -39,6 +54,7 @@ export class Room {
     if (!m) return null;
     this.pending.delete(peerId);
     this.members.set(peerId, m);
+    this.docTokens.set(peerId, newDocToken());
     return m;
   }
 
@@ -68,6 +84,24 @@ export class Room {
     if (next.done) return null;
     this.hostId = next.value;
     return next.value;
+  }
+
+  // ── Doc tokens ────────────────────────────────────────────────────────
+
+  docTokenOf(peerId) {
+    return this.docTokens.get(peerId) || null;
+  }
+
+  revokeDocToken(peerId) {
+    this.docTokens.delete(peerId);
+  }
+
+  /** Does this token currently belong to a member? @returns {boolean} */
+  hasDocToken(token) {
+    for (const t of this.docTokens.values()) {
+      if (t === token) return true;
+    }
+    return false;
   }
 
   // ── Snapshots ─────────────────────────────────────────────────────────
@@ -136,15 +170,30 @@ export class Room {
     return this.sharedFiles.has(fileId);
   }
 
-  /** Replace shared-file ordering by an explicit id list (only keeps known ids). */
+  /**
+   * Replace shared-file ordering by an explicit id list. Invalid entries
+   * (non-objects / non-string ids) are skipped, never dereferenced — a null
+   * element here once crashed the whole process. Returns the ids that were
+   * dropped from the room so their docs can be destroyed.
+   * @param {unknown} fileList
+   * @returns {string[]}
+   */
   reorderSharedFiles(fileList) {
     const oldMap = this.sharedFiles;
     const newMap = new Map();
     for (const f of fileList) {
-      const existing = oldMap.get(f.id);
-      if (existing) newMap.set(f.id, existing);
+      if (typeof f !== 'object' || f === null) continue;
+      const id = f.id;
+      if (typeof id !== 'string') continue;
+      const existing = oldMap.get(id);
+      if (existing) newMap.set(id, existing);
+    }
+    const dropped = [];
+    for (const id of oldMap.keys()) {
+      if (!newMap.has(id)) dropped.push(id);
     }
     this.sharedFiles = newMap;
+    return dropped;
   }
 }
 

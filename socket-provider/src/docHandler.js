@@ -1,8 +1,14 @@
 // Yjs doc channel handler — binary messages over /doc/:roomId/:fileId.
 //
+// Every connection must present a valid per-member doc token (query param
+// `token`), issued by the control channel in `room-created` / `approved` and
+// revoked on kick/leave. Without this gate the approval workflow was
+// bypassable: knowing roomId + fileId was enough to read and write documents.
+//
 // Each connection just bridges its socket to the per-doc Y.Doc/Awareness owned
 // by the DocRegistry. Broadcasting is the registry's responsibility — see
-// `docs.js`. This file only handles initial handshake and inbound parsing.
+// `docs.js`. This file only handles the token check, initial handshake and
+// inbound parsing.
 
 import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
@@ -22,16 +28,22 @@ export function createDocHandler({ rooms, docs }) {
    * @param {import('ws').WebSocket} ws
    * @param {string} roomId
    * @param {string} fileId
+   * @param {string} token
    */
-  return function handleDocConnection(ws, roomId, fileId) {
-    const docName = `${roomId}/${fileId}`;
+  return function handleDocConnection(ws, roomId, fileId, token) {
     const room = rooms.get(roomId);
     if (!room || !room.hasSharedFile(fileId)) {
       try { ws.close(CLOSE.FILE_UNSHARED, 'File not shared'); } catch {}
       return;
     }
+    if (!token || !room.hasDocToken(token)) {
+      try { ws.close(CLOSE.POLICY_VIOLATION, 'Invalid doc token'); } catch {}
+      log.debug('doc', `rejected tokenless/invalid doc connection for ${roomId}/${fileId}`);
+      return;
+    }
 
-    const entry = docs.attach(docName, ws);
+    const docName = `${roomId}/${fileId}`;
+    const entry = docs.attach(docName, ws, token);
     const { doc, awareness } = entry;
 
     {

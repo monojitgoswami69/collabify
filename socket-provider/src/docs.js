@@ -3,6 +3,10 @@
 // fans every update out to every connection except the origin. Connection
 // teardown is responsible for un-attaching only — handler lifecycle follows
 // the doc, not the socket.
+//
+// Each attached socket records its owner key (the per-member doc token), so a
+// member's document access can be revoked wholesale on kick/leave — see
+// `detachOwner`.
 
 import * as Y from 'yjs';
 import * as awarenessProtocol from 'y-protocols/awareness';
@@ -24,6 +28,9 @@ export class DocRegistry {
     this.docs = new Map();
     /** @type {Map<string, ReturnType<typeof setTimeout>>} */
     this._gcTimers = new Map();
+    /** ownerKey -> Set<ws> — live sockets opened with that owner key. */
+    /** @type {Map<string, Set<import('ws').WebSocket>>} */
+    this._owners = new Map();
   }
 
   /**
@@ -48,7 +55,7 @@ export class DocRegistry {
       docName,
       doc,
       awareness,
-      // ws -> Set<clientID>  (awareness IDs we cleanup on disconnect)
+      // ws -> { awarenessIds: Set<clientID>, ownerKey: string }
       conns: new Map(),
     };
 
@@ -60,11 +67,11 @@ export class DocRegistry {
       broadcastExcept(entry, encoding.toUint8Array(encoder), origin);
     };
     entry._awarenessUpdateHandler = ({ added, updated, removed }, origin) => {
-      if (origin && entry.conns.has(origin)) {
-        const tracked = entry.conns.get(origin);
-        for (const id of added) tracked.add(id);
-        for (const id of updated) tracked.add(id);
-        for (const id of removed) tracked.delete(id);
+      const conn = origin && entry.conns.has(origin) ? entry.conns.get(origin) : null;
+      if (conn) {
+        for (const id of added) conn.awarenessIds.add(id);
+        for (const id of updated) conn.awarenessIds.add(id);
+        for (const id of removed) conn.awarenessIds.delete(id);
       }
       const total = added.length + updated.length + removed.length;
       if (total === 0) return;
@@ -109,10 +116,19 @@ export class DocRegistry {
     return entry;
   }
 
-  /** Register a new connection on a document. */
-  attach(docName, ws) {
+  /**
+   * Register a new connection on a document. `ownerKey` (the member's doc
+   * token) indexes the socket for revocation via detachOwner.
+   */
+  attach(docName, ws, ownerKey) {
     const entry = this.getOrCreate(docName);
-    entry.conns.set(ws, new Set());
+    entry.conns.set(ws, { awarenessIds: new Set(), ownerKey });
+    let set = this._owners.get(ownerKey);
+    if (!set) {
+      set = new Set();
+      this._owners.set(ownerKey, set);
+    }
+    set.add(ws);
     return entry;
   }
 
@@ -121,19 +137,42 @@ export class DocRegistry {
     const entry = this.docs.get(docName);
     if (!entry) return;
 
-    const controlledIds = entry.conns.get(ws);
+    const conn = entry.conns.get(ws);
     entry.conns.delete(ws);
-
-    if (controlledIds && controlledIds.size > 0) {
-      awarenessProtocol.removeAwarenessStates(
-        entry.awareness,
-        Array.from(controlledIds),
-        null,
-      );
+    if (conn) {
+      if (conn.awarenessIds.size > 0) {
+        awarenessProtocol.removeAwarenessStates(
+          entry.awareness,
+          Array.from(conn.awarenessIds),
+          null,
+        );
+      }
+      const ownerSet = this._owners.get(conn.ownerKey);
+      if (ownerSet) {
+        ownerSet.delete(ws);
+        if (ownerSet.size === 0) this._owners.delete(conn.ownerKey);
+      }
     }
 
     if (entry.conns.size === 0) {
       this._scheduleGc(docName);
+    }
+  }
+
+  /**
+   * Revoke every doc socket opened with `ownerKey` (a member's doc token):
+   * detach and close them. Used when a member is kicked or disconnects, so
+   * removed members lose document access immediately.
+   */
+  detachOwner(ownerKey) {
+    const set = this._owners.get(ownerKey);
+    if (!set) return;
+    this._owners.delete(ownerKey);
+    for (const ws of set) {
+      for (const [docName, entry] of this.docs) {
+        if (entry.conns.has(ws)) this.detach(docName, ws);
+      }
+      try { ws.close(CLOSE.POLICY_VIOLATION, 'membership-revoked'); } catch {}
     }
   }
 
@@ -200,7 +239,7 @@ export class DocRegistry {
  *   docName: string,
  *   doc: import('yjs').Doc,
  *   awareness: import('y-protocols/awareness').Awareness,
- *   conns: Map<import('ws').WebSocket, Set<number>>,
+ *   conns: Map<import('ws').WebSocket, { awarenessIds: Set<number>, ownerKey: string }>,
  *   _docUpdateHandler?: (update: Uint8Array, origin: unknown) => void,
  *   _awarenessUpdateHandler?: (info: { added: number[], updated: number[], removed: number[] }, origin: unknown) => void
  * }} DocEntry */

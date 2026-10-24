@@ -15,7 +15,6 @@ export const CONTROL = {
   REORDER_FILES: 'reorder-files',
   CHAT_MESSAGE: 'chat-message',
   LEAVE: 'leave',
-  PING: 'ping',
   KICK: 'kick',
   LOCK_ROOM: 'lock-room',
 };
@@ -36,7 +35,6 @@ export const OUT = {
   FILES_REORDERED: 'files-reordered',
   CHAT_MESSAGE: 'chat-message',
   ERROR: 'error',
-  PONG: 'pong',
   KICKED: 'kicked',
   ROOM_LOCKED: 'room-locked',
 };
@@ -62,15 +60,22 @@ export const MAX_SHARED_FILES_PER_ROOM = 200;
 export const MAX_REORDER_LIST_LEN = 200;
 export const MAX_CHAT_LEN = 2000;
 
+// Identity grammar enforced after percent-decoding at the upgrade boundary.
+// A roomId containing '/' would corrupt the `roomId/fileId` doc-key namespace
+// (cross-room collisions in DocRegistry and destroyByPrefix); file ids use the
+// client's `Date.now()` / `Date.now()-index` shapes.
+export const ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const FILE_ID_RE = /^[A-Za-z0-9._-]{1,200}$/;
+
 // Chat rate limit: at most CHAT_BURST messages within CHAT_WINDOW_MS per peer.
 export const CHAT_WINDOW_MS = 5_000;
 export const CHAT_BURST = 10;
 
 // WebSocket close codes used for intentional teardown. Mirrored client-side in
-// code-collab/src/services/collabService.ts — keep in sync.
+// frontend/src/services/collabService.ts — keep in sync.
 export const CLOSE = {
-  NORMAL: 1000,         // peaceful close (also: doc removed, client leave)
-  GOING_AWAY: 1001,     // server shutdown
-  POLICY_VIOLATION: 1008, // malformed / oversized payload, abuse
-  FILE_UNSHARED: 4001,  // host unshared the file (or never shared it)
+  NORMAL: 1000,           // peaceful close (also: doc removed, client leave)
+  GOING_AWAY: 1001,       // server shutdown / room closed
+  POLICY_VIOLATION: 1008, // missing/invalid doc token, abuse
+  FILE_UNSHARED: 4001,    // host unshared the file (or never shared it)
 };

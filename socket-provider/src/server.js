@@ -1,8 +1,12 @@
 // Collabify Socket Provider — entrypoint.
 //
 // Architecture:
-//   /room/:roomId            JSON control channel (Room class)
-//   /doc/:roomId/:fileId     Binary Yjs sync + awareness (DocRegistry)
+//   /room/:roomId                      JSON control channel (Room class)
+//   /doc/:roomId/:fileId?token=…       Binary Yjs sync + awareness (DocRegistry)
+//
+// The `token` query parameter on the doc channel is a per-member capability
+// issued by the control channel (in `room-created` / `approved`); without it a
+// connection is rejected, so document access follows room membership.
 //
 // Heartbeats keep proxies (Nginx, Cloudflare, etc.) from dropping idle sockets.
 //
@@ -24,11 +28,18 @@ import {
   HEARTBEAT_INTERVAL_MS,
   CLOSE,
   MAX_WS_PAYLOAD_BYTES,
+  ROOM_ID_RE,
+  FILE_ID_RE,
 } from './constants.js';
 import { log } from './log.js';
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
+
+if (!Number.isInteger(PORT) || PORT < 0 || PORT > 65535) {
+  log.error('boot', `Invalid PORT "${process.env.PORT}" — must be an integer between 0 and 65535`);
+  process.exit(1);
+}
 
 // ── TLS configuration ──────────────────────────────────────────────────
 const TLS_CERT = (process.env.TLS_CERT || '').trim();
@@ -53,6 +64,39 @@ if (TLS_CERT && TLS_KEY) {
 const rooms = new Map();
 const docs = new DocRegistry();
 
+// ── URL / path-segment helpers ──────────────────────────────────────────
+
+/**
+ * Parse req.url defensively. A malformed or missing Host header (or request
+ * target) must yield a rejection, never a thrown TypeError — the HTTP and
+ * upgrade paths both run inside event callbacks where a throw would be fatal.
+ * @returns {URL | null}
+ */
+function safeParseUrl(req) {
+  try {
+    return new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decode a percent-encoded path segment and validate it against the room/file
+ * id grammar. Returns null for malformed encodings (decodeURIComponent throws)
+ * or disallowed characters — a `/` inside a roomId would corrupt the
+ * `roomId/fileId` doc keys and let one room's teardown destroy another's docs.
+ * @returns {string | null}
+ */
+function decodeSegment(segment, allowed) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  return allowed.test(decoded) ? decoded : null;
+}
+
 // ── CORS helper ─────────────────────────────────────────────────────────
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -73,7 +117,12 @@ function jsonResponse(res, statusCode, body) {
 
 // ── HTTP request handler ────────────────────────────────────────────────
 function handleRequest(req, res) {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const url = safeParseUrl(req);
+  if (!url) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'Bad Request' }));
+    return;
+  }
   const pathname = url.pathname;
 
   // CORS preflight
@@ -102,19 +151,16 @@ function handleRequest(req, res) {
       });
       break;
 
-    case '/stats': {
-      const roomList = [];
-      for (const [roomId, room] of rooms) {
-        roomList.push({
-          roomId,
-          members: room.members.size,
-          pending: room.pending.size,
-          sharedFiles: room.sharedFiles.size,
-        });
-      }
-      jsonResponse(res, 200, { rooms: roomList, totalDocs: docs.count() });
+    case '/stats':
+      // Aggregates only — never enumerate room ids; the room id is the only
+      // join secret, and doc access used to be guessable from it.
+      jsonResponse(res, 200, {
+        rooms: rooms.size,
+        totalDocs: docs.count(),
+        totalMembers: Array.from(rooms.values()).reduce((n, r) => n + r.members.size, 0),
+        totalPending: Array.from(rooms.values()).reduce((n, r) => n + r.pending.size, 0),
+      });
       break;
-    }
 
     default:
       jsonResponse(res, 404, { error: 'Not Found' });
@@ -139,15 +185,23 @@ const handleRoom = createRoomHandler({ rooms, docs });
 const handleDoc = createDocHandler({ rooms, docs });
 
 server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const url = safeParseUrl(req);
+  if (!url) {
+    socket.destroy();
+    return;
+  }
   const pathname = url.pathname;
 
   const roomMatch = pathname.match(/^\/room\/([^/]+)$/);
   if (roomMatch) {
+    const roomId = decodeSegment(roomMatch[1], ROOM_ID_RE);
+    if (!roomId) {
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });
-      const roomId = decodeURIComponent(roomMatch[1]);
       handleRoom(ws, roomId);
     });
     return;
@@ -155,12 +209,16 @@ server.on('upgrade', (req, socket, head) => {
 
   const docMatch = pathname.match(/^\/doc\/([^/]+)\/([^/]+)$/);
   if (docMatch) {
+    const roomId = decodeSegment(docMatch[1], ROOM_ID_RE);
+    const fileId = decodeSegment(docMatch[2], FILE_ID_RE);
+    if (!roomId || !fileId) {
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });
-      const roomId = decodeURIComponent(docMatch[1]);
-      const fileId = decodeURIComponent(docMatch[2]);
-      handleDoc(ws, roomId, fileId);
+      handleDoc(ws, roomId, fileId, url.searchParams.get('token') || '');
     });
     return;
   }
@@ -184,10 +242,15 @@ wss.on('close', () => clearInterval(heartbeat));
 // ── Listen ──────────────────────────────────────────────────────────────
 const protocol = tlsOptions ? 'wss' : 'ws';
 
+server.on('error', (err) => {
+  log.error('boot', `Server error: ${err.message}`);
+  process.exit(1);
+});
+
 server.listen(PORT, HOST, () => {
   log.info('boot', `Collabify socket provider on ${HOST}:${PORT} (${tlsOptions ? 'TLS' : 'plain'})`);
   log.info('boot', `  control: ${protocol}://${HOST}:${PORT}/room/:roomId`);
-  log.info('boot', `  doc:     ${protocol}://${HOST}:${PORT}/doc/:roomId/:fileId`);
+  log.info('boot', `  doc:     ${protocol}://${HOST}:${PORT}/doc/:roomId/:fileId?token=:memberToken`);
 });
 
 // ── Graceful shutdown ───────────────────────────────────────────────────

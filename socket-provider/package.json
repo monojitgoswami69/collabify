@@ -1,7 +1,7 @@
 {
   "name": "collabify-socket-provider",
   "version": "1.0.0",
-  "description": "WebSocket collaboration backend for Collabify — Yjs room + doc sync with awareness.",
+  "description": "WebSocket collaboration backend for Collabify \u2014 Yjs room + doc sync with awareness.",
   "type": "module",
   "main": "src/server.js",
   "engines": {
@@ -9,12 +9,13 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "test": "node --test --test-concurrency=1 test/"
   },
   "dependencies": {
-    "lib0": "^0.2.117",
-    "ws": "^8.21.0",
+    "lib0": "^0.2.119",
+    "ws": "^8.22.0",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.31"
+    "yjs": "^13.6.33"
   }
 }
