@@ -43,7 +43,7 @@ export function useSashResize(
   // Initialize from localStorage on mount
   useEffect(() => {
     if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem('codalyzer:sidebarWidth');
+      const saved = localStorage.getItem('collabify:sidebarWidth');
       if (saved) {
         const n = parseInt(saved, 10);
         if (Number.isFinite(n) && n >= MIN_SIDEBAR_WIDTH && n <= MAX_SIDEBAR_WIDTH) {
@@ -125,9 +125,13 @@ export function useSashResize(
     // Commit to React state exactly once when the drag ends
     setSidebarWidth(widthRef.current);
     
-    // Save to localStorage
+    // Save to localStorage (best-effort — storage can be blocked)
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('codalyzer:sidebarWidth', widthRef.current.toString());
+      try {
+        localStorage.setItem('collabify:sidebarWidth', widthRef.current.toString());
+      } catch {
+        /* ignore */
+      }
     }
 
     // Flush a final editor layout to guarantee alignment when the drag ends

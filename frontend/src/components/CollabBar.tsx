@@ -92,9 +92,16 @@ export const CollabBar = memo(function CollabBar({
   }, [handleClickOutside]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(roomId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard
+      .writeText(roomId)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Clipboard unavailable (permissions / insecure origin) — show nothing
+        // rather than a false success checkmark.
+      });
   };
 
   const statusIcon = () => {

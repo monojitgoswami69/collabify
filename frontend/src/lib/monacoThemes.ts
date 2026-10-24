@@ -461,7 +461,6 @@ export const CATPPUCCIN_LATTE: Monaco.editor.IStandaloneThemeData = {
   colors: buildColorsLatte(LATTE),
 };
 
-let defined = false;
 
 /**
  * Idempotently register both themes on a monaco namespace.
@@ -470,9 +469,4 @@ let defined = false;
 export function defineCatppuccinThemes(monaco: typeof Monaco) {
   monaco.editor.defineTheme('catppuccin-mocha', CATPPUCCIN_MOCHA);
   monaco.editor.defineTheme('catppuccin-latte', CATPPUCCIN_LATTE);
-  defined = true;
-}
-
-export function themesDefined() {
-  return defined;
-}
+  }

@@ -134,7 +134,6 @@ export function EditorView({
         name: shared.name,
         language: shared.language,
         content: '',
-        contentHash: '',
         lastModified: Date.now(),
       } as StoredFile;
     }
@@ -275,9 +274,22 @@ export function EditorView({
 
 
   useEffect(() => {
+    if (!activeFileId) {
+      // No file open — the editor is unmounted and its instance disposed.
+      // Drop the references so later resize/layout calls can't reach a
+      // disposed editor; the next onEditorReady repopulates them.
+      editorRef.current = null;
+      editorLayoutFnRef.current = null;
+    }
+  }, [activeFileId]);
+
+  useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     const saved = localStorage.getItem('editor-font-size');
-    if (saved) setFontSize(parseInt(saved, 10));
+    if (saved) {
+      const n = parseInt(saved, 10);
+      if (Number.isFinite(n) && n >= 8 && n <= 40) setFontSize(n);
+    }
   }, []);
 
   useEffect(() => {
@@ -397,15 +409,6 @@ export function EditorView({
 
   const isActiveFileShared = activeFileId ? sharedFileIds.has(activeFileId) : false;
 
-  const collabFileContents = useMemo(() => {
-    const m = new Map<string, StoredFile>();
-    for (const sf of collab.sharedFiles) {
-      const local = files.find((f) => f.id === sf.id);
-      if (local) m.set(sf.id, local);
-    }
-    return m;
-  }, [collab.sharedFiles, files]);
-
   const handleAddToCollab = (fileId: string) => {
     const file = files.find((f) => f.id === fileId);
     if (!file) return;
@@ -448,7 +451,7 @@ export function EditorView({
             <Menu size={20} />
           </button>
           <Image
-            src="/CodeCollab-logo.png"
+            src="/collabify-logo.png"
             alt="Collabify Logo"
             width={40}
             height={40}
@@ -606,7 +609,6 @@ export function EditorView({
                 isInRoom={isInRoom}
                 isHost={collab.isHost}
                 sharedFiles={collab.sharedFiles}
-                collabFileContents={collabFileContents}
                 onAddToCollab={handleAddToCollab}
                 onRemoveFromCollab={handleRemoveFromCollab}
                 onSelectCollabFile={handleSelectCollabFile}
@@ -725,7 +727,7 @@ export function EditorView({
               messages={collab.chatMessages}
               selfPeerId={collab.peerId}
               onSendMessage={collab.sendChatMessage}
-              onClose={() => setIsChatOpen(false)}
+              onClose={() => animateChatPanel(false)}
             />
           </div>
         )}

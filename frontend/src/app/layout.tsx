@@ -1,12 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import {
-  JetBrains_Mono,
-  Quantico,
-  Kode_Mono,
-  Nova_Mono,
-  Syne_Mono,
-  Space_Mono,
-} from 'next/font/google';
+import { JetBrains_Mono, Quantico, Kode_Mono } from 'next/font/google';
 import './globals.css';
 
 const jetbrainsMono = JetBrains_Mono({
@@ -27,28 +20,6 @@ const kodeMono = Kode_Mono({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
   variable: '--font-kode',
-  display: 'swap',
-});
-
-const novaMono = Nova_Mono({
-  subsets: ['latin'],
-  weight: ['400'],
-  variable: '--font-nova',
-  display: 'swap',
-});
-
-const syneMono = Syne_Mono({
-  subsets: ['latin'],
-  weight: ['400'],
-  variable: '--font-syne',
-  display: 'swap',
-});
-
-const spaceMono = Space_Mono({
-  subsets: ['latin'],
-  weight: ['400', '700'],
-  style: ['normal', 'italic'],
-  variable: '--font-space',
   display: 'swap',
 });
 
@@ -76,7 +47,7 @@ export const viewport: Viewport = {
 const themeBootstrap = `
 (function() {
   try {
-    var stored = localStorage.getItem('codecollab-v2-theme');
+    var stored = localStorage.getItem('collabify-v2-theme');
     var theme = (stored === 'light' || stored === 'dark')
       ? stored
       : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
@@ -89,14 +60,7 @@ const themeBootstrap = `
 })();
 `;
 
-const fontVariables = [
-  jetbrainsMono.variable,
-  quantico.variable,
-  kodeMono.variable,
-  novaMono.variable,
-  syneMono.variable,
-  spaceMono.variable,
-].join(' ');
+const fontVariables = [jetbrainsMono.variable, quantico.variable, kodeMono.variable].join(' ');
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -2,9 +2,10 @@
 
 // Monaco model lifecycle helpers.
 //
-// Each file in the app maps to (potentially) two Monaco text models:
-//   1. `inmemory:///<fileId>`           — the local-only editor
-//   2. `inmemory:///collab/<fileId>`    — the y-monaco bound editor (when sharing)
+// Each file in the app maps to (potentially) two Monaco text models (the
+// bare path resolves under the `file` scheme — file:///<fileId>):
+//   1. `/<fileId>`           — the local-only editor
+//   2. `/collab/<fileId>`    — the y-monaco bound editor (when sharing)
 //
 // `@monaco-editor/react` creates a model the first time `<Editor path=…>` mounts
 // and keeps it cached. When the underlying file is deleted from app state, the

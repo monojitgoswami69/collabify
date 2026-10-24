@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 
 interface SashProps {
   onResize: (clientX: number) => void;
@@ -45,6 +45,17 @@ export function Sash({ onResize, onResizeStart, onResizeEnd }: SashProps) {
     },
     [onResize, onResizeStart, onResizeEnd]
   );
+
+  // Unmount mid-drag must still end the drag and drop the document
+  // listeners — otherwise the sidebar tracks the cursor forever.
+  useEffect(() => {
+    return () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        onResizeEnd();
+      }
+    };
+  }, [onResizeEnd]);
 
   return (
     <div

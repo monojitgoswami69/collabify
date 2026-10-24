@@ -13,17 +13,11 @@ import type * as Monaco from 'monaco-editor';
 //
 // Tuned to match what VSCode ships out-of-the-box, with the deltas a
 // browser-hosted snippet pad benefits from:
-//   • automaticLayout: true          — Monaco's own ResizeObserver-based
-//                                     layout. In 0.55 it's rAF-coalesced
-//                                     AND passes the observed dimensions
-//                                     straight into `editor.layout(dim)`,
-//                                     skipping the synchronous bounding-box
-//                                     read that a hand-rolled `editor.layout()`
-//                                     call forces. Trust Monaco's path —
-//                                     it's strictly faster than ours was
-//                                     and it cooperates with the sash drag
-//                                     and chat-panel grid animation without
-//                                     any external suspension state.
+//   • automaticLayout: false         — layout is driven externally by
+//                                     useSashResize's ResizeObserver and the
+//                                     chat-panel animation, which push exact
+//                                     dimensions into editor.layout(). Monaco's
+//                                     own observer would fight them.
 //   • minimap.renderCharacters:true — glyphs render to canvas via Monaco's
 //                                     atlas; cheap after the first paint.
 //   • stickyScroll: false            — disabled by default in VSCode for the

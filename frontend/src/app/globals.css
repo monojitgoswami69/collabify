@@ -6,13 +6,7 @@
   --font-sans: var(--font-jetbrains), ui-monospace, monospace;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 
-  --color-slate-750: #2d3748;
-  --color-slate-850: #1a202c;
-  --color-slate-950: #0b1120;
-
   --animate-fade-in: fadeIn 0.3s ease-out forwards;
-  --animate-fade-in-up: fadeInUp 0.3s ease-out forwards;
-  --animate-slide-in: slideIn 0.2s ease-out forwards;
 }
 
 html {
@@ -29,12 +23,8 @@ button:disabled,
   cursor: not-allowed;
 }
 
-.nova-font { font-family: var(--font-nova), monospace !important; }
-.syne-font { font-family: var(--font-syne), monospace !important; }
-.jetbrains-font { font-family: var(--font-jetbrains), monospace !important; }
 .quantico-font { font-family: var(--font-quantico), sans-serif !important; }
 .kode-font { font-family: var(--font-kode), monospace !important; }
-.space-font { font-family: var(--font-space), monospace !important; }
 
 body {
   -webkit-font-smoothing: antialiased;
@@ -66,63 +56,15 @@ html.light ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
   to { opacity: 1; }
 }
 
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(-8px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(24px); }
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes pulse-slow {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
-}
-
 .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-.animate-fade-in-up { animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
-@keyframes blob {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  33%  { transform: translate(30px, -50px) scale(1.1); }
-  66%  { transform: translate(-20px, 20px) scale(0.9); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-
-.animate-blob { animation: blob 7s infinite alternate; }
-.animation-delay-2000 { animation-delay: 2s; }
-.animation-delay-4000 { animation-delay: 4s; }
-
-.bg-mesh {
-  background-image:
-    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.1) 0, transparent 50%),
-    radial-gradient(at 50% 0%, rgba(139, 92, 246, 0.1) 0, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.1) 0, transparent 50%);
-}
 
 textarea:focus { outline: none; }
-.no-select { user-select: none; }
-
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
-html.light .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; }
-html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-/* ─── Monaco Overrides ──────────────────────────────────────────────── */
-html.dark .monaco-editor,
-html.dark .monaco-editor .margin,
-html.dark .monaco-editor-background {
-  background-color: #232332 !important;
-}
 html.dark .monaco-editor .scroll-decoration { box-shadow: none !important; }
 
 html.light .monaco-editor,

@@ -11,7 +11,6 @@ import {
   saveFiles,
   getActiveFileId,
   setActiveFileId as saveActiveFileId,
-  computeContentHash,
   StoredFile,
 } from '@/services/storageService';
 import { detectLanguage, detectLanguageAI } from '@/utils/detectLanguage';
@@ -28,6 +27,14 @@ import {
 const useIsomorphicLayoutEffect =
   typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
+// Cryptographically unique file ids — Date.now() collided when two files were
+// created in the same millisecond, aliasing them onto one Monaco model.
+function newFileId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function AppInner() {
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
@@ -35,6 +42,8 @@ function AppInner() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
   const [showCollabModal, setShowCollabModal] = useState(false);
+  // Mirrors loadingFileId for guards inside async callbacks without re-creating them.
+  const loadingFileIdRef = useRef<string | null>(null);
 
   const collab = useCollabRoom();
   const autoSharedRef = useRef(false);
@@ -43,22 +52,25 @@ function AppInner() {
   const filesRef = useRef(files);
   const activeFileIdRef = useRef(activeFileId);
   const shareFileRef = useRef(collab.shareFile);
+  const sharedFileIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     filesRef.current = files;
     activeFileIdRef.current = activeFileId;
     shareFileRef.current = collab.shareFile;
+    sharedFileIdsRef.current = new Set(collab.sharedFiles.map((f) => f.id));
   });
 
   const { isHost: collabIsHost, status: collabStatus } = collab;
   const sharedCount = collab.sharedFiles.length;
   useEffect(() => {
-    if (collabStatus === 'disconnected') {
+    if (collabStatus !== 'connected') {
+      // Reset on every non-connected status (not just 'disconnected') so a
+      // failed room doesn't suppress auto-share in the next one.
       autoSharedRef.current = false;
       return;
     }
     if (
       collabIsHost &&
-      collabStatus === 'connected' &&
       sharedCount === 0 &&
       !autoSharedRef.current
     ) {
@@ -102,6 +114,7 @@ function AppInner() {
   useIsomorphicLayoutEffect(() => {
     const stored = getStoredFiles();
     const storedActive = getActiveFileId();
+    hydratedFilesRef.current = stored;
     setFiles(stored);
     if (stored.length > 0) {
       const active =
@@ -113,8 +126,14 @@ function AppInner() {
     setIsInitialized(true);
   }, []);
 
+  // The exact array hydrated from storage — a save of this unchanged value
+  // would be a no-op at best and, when the stored JSON was corrupt (fallback
+  // []), would overwrite whatever might still be recoverable. Skip it.
+  const hydratedFilesRef = useRef<StoredFile[] | null>(null);
+
   useEffect(() => {
     if (!isInitialized) return;
+    if (hydratedFilesRef.current === files) return; // untouched since load
     const handler = setTimeout(() => {
       saveFiles(files);
     }, 500);
@@ -196,11 +215,10 @@ function AppInner() {
 
   const handleFileCreate = useCallback(() => {
     const newFile: StoredFile = {
-      id: Date.now().toString(),
+      id: newFileId(),
       name: `Snippet-${files.length + 1}`,
       content: '',
       language: '',
-      contentHash: computeContentHash(''),
       lastModified: Date.now(),
     };
     setFiles((prev) => [...prev, newFile]);
@@ -209,14 +227,13 @@ function AppInner() {
 
   const handleFileUpload = useCallback(async (file: File) => {
     const text = await file.text();
-    const fileId = Date.now().toString();
+    const fileId = newFileId();
     const syncLanguage = detectLanguage(file.name, text);
     const newFile: StoredFile = {
       id: fileId,
       name: file.name,
       content: text,
       language: syncLanguage,
-      contentHash: computeContentHash(text),
       lastModified: Date.now(),
     };
     setFiles((prev) => [...prev, newFile]);
@@ -230,13 +247,15 @@ function AppInner() {
 
   const handleFileDelete = useCallback(
     (id: string) => {
-      setFiles((prev) => {
-        const next = prev.filter((f) => f.id !== id);
-        if (activeFileIdRef.current === id) {
-          setActiveFileId(next.length > 0 ? next[0].id : null);
-        }
-        return next;
-      });
+      // Compute the next state outside the updater — React updaters must be
+      // pure (React 19 may invoke them twice under StrictMode).
+      const prev = filesRef.current;
+      const next = prev.filter((f) => f.id !== id);
+      if (next.length === prev.length) return;
+      setFiles(next);
+      if (activeFileIdRef.current === id) {
+        setActiveFileId(next.length > 0 ? next[0]!.id : null);
+      }
       // Dispose the Monaco text model so we don't leak its buffer +
       // tokenization cache. Lazy import keeps monaco out of the SSR path.
       import('@/lib/monacoModels')
@@ -253,7 +272,6 @@ function AppInner() {
           ? {
               ...f,
               content: newCode,
-              contentHash: computeContentHash(newCode),
               lastModified: Date.now(),
             }
           : f,
@@ -268,13 +286,12 @@ function AppInner() {
   }, []);
 
   const handleGitHubImport = useCallback((fileName: string, content: string, language: string) => {
-    const fileId = Date.now().toString();
+    const fileId = newFileId();
     const newFile: StoredFile = {
       id: fileId,
       name: fileName,
       content,
       language,
-      contentHash: computeContentHash(content),
       lastModified: Date.now(),
       contentLoaded: true,
     };
@@ -292,11 +309,10 @@ function AppInner() {
     const newFiles: StoredFile[] = fileEntries.map((item, i) => {
       const fileName = item.path.split('/').pop() || item.path;
       return {
-        id: `${Date.now()}-${i}`,
+        id: `${newFileId()}-${i}`,
         name: fileName,
         content: '',
         language: detectLanguage(fileName, ''),
-        contentHash: computeContentHash(''),
         lastModified: Date.now(),
         path: item.path,
         repoOrigin: {
@@ -314,8 +330,13 @@ function AppInner() {
   const handleFileSelect = useCallback(
     async (id: string) => {
       setActiveFileId(id);
+      // In-flight guard: a second click on the same loading file (or on
+      // another file while one loads) must not stack duplicate fetches.
+      const loadingRef = loadingFileIdRef.current;
+      if (loadingRef === id) return;
       const file = filesRef.current.find((f) => f.id === id);
       if (file && file.repoOrigin && !file.contentLoaded) {
+        loadingFileIdRef.current = id;
         setLoadingFileId(id);
         try {
           const token = getStoredToken();
@@ -334,7 +355,6 @@ function AppInner() {
                     ...f,
                     content,
                     language: syncLang,
-                    contentHash: computeContentHash(content),
                     contentLoaded: true,
                   }
                 : f,
@@ -360,7 +380,12 @@ function AppInner() {
             ),
           );
         } finally {
-          setLoadingFileId(null);
+          // Only clear the spinner if this fetch is still the tracked one —
+          // an earlier finisher must not clear a later file's loading state.
+          if (loadingFileIdRef.current === id) {
+            loadingFileIdRef.current = null;
+            setLoadingFileId(null);
+          }
         }
       }
     },
@@ -369,28 +394,33 @@ function AppInner() {
 
   const handleRepoDelete = useCallback(
     (repoKey: string) => {
-      let removedIds: string[] = [];
-      setFiles((prev) => {
-        removedIds = prev
-          .filter((f) => f.repoOrigin && `${f.repoOrigin.owner}/${f.repoOrigin.repo}` === repoKey)
-          .map((f) => f.id);
-        const next = prev.filter((f) => {
-          if (!f.repoOrigin) return true;
-          return `${f.repoOrigin.owner}/${f.repoOrigin.repo}` !== repoKey;
-        });
-        const currentActiveId = activeFileIdRef.current;
-        if (currentActiveId && !next.some((f) => f.id === currentActiveId)) {
-          setActiveFileId(next.length > 0 ? next[0].id : null);
-        }
-        return next;
+      // Compute everything outside the updater — updaters must stay pure,
+      // and `removedIds` read synchronously after setFiles() was unreliable.
+      const prev = filesRef.current;
+      const removed = prev.filter(
+        (f) => f.repoOrigin && `${f.repoOrigin.owner}/${f.repoOrigin.repo}` === repoKey,
+      );
+      if (removed.length === 0) return;
+      const removedIds = removed.map((f) => f.id);
+      const next = prev.filter((f) => {
+        if (!f.repoOrigin) return true;
+        return `${f.repoOrigin.owner}/${f.repoOrigin.repo}` !== repoKey;
       });
-      if (removedIds.length > 0) {
-        import('@/lib/monacoModels')
-          .then(({ disposeModelsForFiles }) => disposeModelsForFiles(removedIds))
-          .catch(() => {});
+      setFiles(next);
+      const currentActiveId = activeFileIdRef.current;
+      if (currentActiveId && !next.some((f) => f.id === currentActiveId)) {
+        setActiveFileId(next.length > 0 ? next[0]!.id : null);
       }
+      // Unshare any removed file that is currently in the collab room —
+      // otherwise it lingers as an editable ghost shared file backed by nothing.
+      for (const f of removed) {
+        if (sharedFileIdsRef.current.has(f.id)) collab.unshareFile(f.id);
+      }
+      import('@/lib/monacoModels')
+        .then(({ disposeModelsForFiles }) => disposeModelsForFiles(removedIds))
+        .catch(() => {});
     },
-    [],
+    [collab],
   );
 
   // Before localStorage has been read, render a bg-matching splash so the

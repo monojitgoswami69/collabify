@@ -1,13 +1,12 @@
 import { FileNode, Theme } from '@/lib/types';
 
 const KEYS = {
-  FILES: 'codecollab-v2-files',
-  ACTIVE_FILE: 'codecollab-v2-active-file',
-  THEME: 'codecollab-v2-theme',
+  FILES: 'collabify-v2-files',
+  ACTIVE_FILE: 'collabify-v2-active-file',
+  THEME: 'collabify-v2-theme',
 } as const;
 
 export interface StoredFile extends FileNode {
-  contentHash: string;
   lastModified: number;
   path?: string;
   repoOrigin?: {
@@ -16,16 +15,6 @@ export interface StoredFile extends FileNode {
     branch: string;
   };
   contentLoaded?: boolean;
-}
-
-export function computeContentHash(content: string): string {
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash.toString(36);
 }
 
 function isBrowser(): boolean {
@@ -44,7 +33,13 @@ function readJSON<T>(key: string, fallback: T): T {
 
 function writeJSON(key: string, value: unknown): void {
   if (!isBrowser()) return;
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    // Quota exceeded or storage blocked — persistence degrades silently
+    // rather than throwing from every debounced save.
+    console.warn(`[storage] failed to persist "${key}":`, err);
+  }
 }
 
 export function getStoredFiles(): StoredFile[] {
@@ -62,7 +57,11 @@ export function getActiveFileId(): string | null {
 
 export function setActiveFileId(fileId: string): void {
   if (!isBrowser()) return;
-  localStorage.setItem(KEYS.ACTIVE_FILE, fileId);
+  try {
+    localStorage.setItem(KEYS.ACTIVE_FILE, fileId);
+  } catch {
+    /* storage blocked — selection is session-only */
+  }
 }
 
 export function getStoredTheme(): Theme {
@@ -75,10 +74,10 @@ export function getStoredTheme(): Theme {
 
 export function setStoredTheme(theme: Theme): void {
   if (!isBrowser()) return;
-  localStorage.setItem(KEYS.THEME, theme);
+  try {
+    localStorage.setItem(KEYS.THEME, theme);
+  } catch {
+    /* storage blocked — theme is session-only */
+  }
 }
 
-export function clearAllStorage(): void {
-  if (!isBrowser()) return;
-  Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
-}

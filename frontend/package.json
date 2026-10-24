@@ -17,7 +17,7 @@
     "lucide-react": "^1.17.0",
     "magika": "^1.0.0",
     "monaco-editor": "^0.55.1",
-    "next": "^16.2.7",
+    "next": "16.4.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-qr-code": "^2.0.21",
@@ -31,16 +31,17 @@
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
-    "postcss": "8.5.15",
+    "postcss": "8.5.31",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3"
   },
   "overrides": {
-    "dompurify": "3.4.8",
-    "postcss": "8.5.15",
-    "tar": "7.5.16",
+    "dompurify": "3.4.17",
+    "postcss": "8.5.31",
+    "tar": "7.5.22",
     "@mapbox/node-pre-gyp": "^2",
     "rimraf": "^5",
-    "glob": "^13"
+    "glob": "^13",
+    "sharp": "0.35.5"
   }
 }

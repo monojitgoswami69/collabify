@@ -99,6 +99,11 @@ async function getMagika(): Promise<Magika> {
       return instance;
     });
   });
+  // A transient init failure (network/WASM) must not permanently disable AI
+  // detection — clear the cached rejection so the next call retries.
+  magikaInitPromise.catch(() => {
+    magikaInitPromise = null;
+  });
   return magikaInitPromise;
 }
 

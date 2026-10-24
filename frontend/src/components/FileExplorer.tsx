@@ -68,12 +68,28 @@ function LangIcon({ language, size = 14 }: { language: string; size?: number }) 
 function buildTree(files: StoredFile[]): TreeNode {
   const root: TreeNode = { name: '', path: '', children: new Map(), isDir: true };
 
+  // Same-name files (upload twice, create/delete/recreate) must each get
+  // their own tree node — a shared node meant the earlier file's id was
+  // overwritten and the file became unreachable, with duplicate React keys.
+  const usedLeafPaths = new Set<string>();
+
   for (const file of files) {
     const groupName = file.repoOrigin
       ? `${file.repoOrigin.owner}/${file.repoOrigin.repo}`
       : '';
     const filePath = file.path || file.name;
-    const fullPath = groupName ? `${groupName}/${filePath}` : filePath;
+    const baseFullPath = groupName ? `${groupName}/${filePath}` : filePath;
+    let fullPath = baseFullPath;
+    for (let n = 2; usedLeafPaths.has(fullPath); n++) {
+      const lastSlash = baseFullPath.lastIndexOf('/');
+      const dir = lastSlash === -1 ? '' : baseFullPath.slice(0, lastSlash + 1);
+      const name = lastSlash === -1 ? baseFullPath : baseFullPath.slice(lastSlash + 1);
+      const dot = name.lastIndexOf('.');
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : '';
+      fullPath = `${dir}${stem} (${n})${ext}`;
+    }
+    usedLeafPaths.add(fullPath);
     const parts = fullPath.split('/');
 
     let current = root;
@@ -354,7 +370,6 @@ interface FileExplorerProps {
   isInRoom: boolean;
   isHost: boolean;
   sharedFiles: SharedFileInfo[];
-  collabFileContents: Map<string, StoredFile>;
   onAddToCollab?: (fileId: string) => void;
   onRemoveFromCollab?: (fileId: string) => void;
   onSelectCollabFile?: (fileId: string) => void;
@@ -371,7 +386,6 @@ export const FileExplorer = memo(function FileExplorer({
   isInRoom,
   isHost,
   sharedFiles,
-  collabFileContents,
   onAddToCollab,
   onRemoveFromCollab,
   onSelectCollabFile,
@@ -437,26 +451,7 @@ export const FileExplorer = memo(function FileExplorer({
     return a.name.localeCompare(b.name);
   });
 
-  const collabFiles = useMemo(
-    () =>
-      sharedFiles.map((sf) => {
-        const local = collabFileContents.get(sf.id);
-        return {
-          ...sf,
-          storedFile:
-            local ||
-            ({
-              id: sf.id,
-              name: sf.name,
-              language: sf.language,
-              content: '',
-              contentHash: '',
-              lastModified: Date.now(),
-            } as StoredFile),
-        };
-      }),
-    [sharedFiles, collabFileContents],
-  );
+  const collabFiles = useMemo(() => sharedFiles, [sharedFiles]);
 
   return (
     <div className="space-y-1 text-sm">

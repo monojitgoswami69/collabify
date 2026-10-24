@@ -1,8 +1,8 @@
-# CodeCollab
+# Collabify
 
 **Real-time collaborative code editor built for teams.**
 
-CodeCollab is a browser-based collaborative coding platform that lets multiple developers edit the same codebase in real time. It pairs a Monaco editor frontend with a purpose-built WebSocket collaboration server, delivering low-latency synchronization powered by Yjs CRDTs and a control channel for room management, chat, and file sharing.
+Collabify is a browser-based collaborative coding platform that lets multiple developers edit the same codebase in real time. It pairs a Monaco editor frontend with a purpose-built WebSocket collaboration server, delivering low-latency synchronization powered by Yjs CRDTs and a control channel for room management, chat, and file sharing.
 
 ---
 
@@ -12,16 +12,18 @@ CodeCollab is a browser-based collaborative coding platform that lets multiple d
 - [Architecture](#architecture)
 - [Technology Stack](#technology-stack)
 - [Key Features](#key-features)
+- [Security Model](#security-model)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
-- [Monaco Load Fix](#monaco-load-fix)
+- [Development & Tests](#development--tests)
+- [Monaco Loader](#monaco-loader)
 
 ---
 
 ## Platform Overview
 
-CodeCollab is designed for lightweight, zero-install collaboration in the browser. A host creates a room and shares a short room code, collaborators join instantly, and every keystroke is synchronized across peers with conflict-free merging.
+Collabify is designed for lightweight, zero-install collaboration in the browser. A host creates a room and shares a short room code, collaborators join and are approved by the host, and every keystroke is synchronized across peers with conflict-free merging.
 
 The platform focuses on three principles:
 
@@ -33,7 +35,7 @@ The platform focuses on three principles:
 
 ## Architecture
 
-CodeCollab follows a two-service architecture with clear separation of concerns:
+Collabify follows a two-service architecture with clear separation of concerns:
 
 ```
 			  +--------------------+
@@ -62,9 +64,13 @@ The socket provider exposes two distinct WebSocket paths per room:
 | Path | Protocol | Purpose |
 |------|----------|---------|
 | `/room/:roomId` | JSON | Control channel for room management, join/approve workflows, file sharing metadata, and chat messages |
-| `/doc/:roomId/:fileId` | Binary (Yjs) | Document synchronization channel carrying Yjs sync and awareness protocol messages |
+| `/doc/:roomId/:fileId?token=…` | Binary (Yjs) | Document synchronization channel carrying Yjs sync and awareness protocol messages |
 
 This separation ensures that heavy binary document traffic never competes with lightweight JSON control messages. Each shared file gets its own `Y.Doc` instance on the server, allowing independent synchronization lifecycles.
+
+### Document Access Control
+
+Every approved room member receives a per-member doc token (delivered in the `room-created` / `approved` control messages). Doc-channel connections must present this token as a query parameter; it is revoked when the member is kicked or disconnects, at which point their doc sockets are closed. The host-controlled approval workflow therefore applies to document content, not just to the control channel.
 
 ### Conflict Resolution
 
@@ -74,7 +80,7 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 
 ## Technology Stack
 
-### Frontend (Next.js app)
+### Frontend (`frontend/` — Next.js app)
 
 | Technology | Role |
 |------------|------|
@@ -82,15 +88,16 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 | React 19 | Component framework |
 | TypeScript | Type safety |
 | Monaco Editor | Code editing surface |
-| Tailwind CSS 3 | Styling system |
+| Tailwind CSS 4 | Styling system |
 | Yjs + y-monaco | CRDT document binding |
 | y-protocols | Sync and awareness wire protocols |
+| Magika | AI-based content language detection |
 
-### Collaboration Server
+### Collaboration Server (`socket-provider/`)
 
 | Technology | Role |
 |------------|------|
-| Node.js 20+ | Runtime |
+| Node.js 24+ | Runtime |
 | ws | WebSocket server |
 | Yjs (server) | Server-side CRDT doc sync |
 | lib0 | Binary encoding/decoding utilities |
@@ -106,8 +113,9 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 
 ### Room Management
 - Host-controlled rooms with join request and approval workflow
+- Kicking a member revokes document access immediately (doc sockets are closed and their token invalidated)
+- Room locking; host promotion when the host leaves
 - Peer presence tracking with colored avatars and display names
-- Room-wide file sharing with automatic content synchronization
 
 ### Code Editor
 - Monaco Editor with VS Code-class editing experience
@@ -116,12 +124,24 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 
 ### Chat System
 - Real-time room-wide chat over the control channel
-- Server-stamped messages with peer identity and timestamps
+- Server-stamped messages with peer identity and timestamps, rate-limited per peer
 
 ### GitHub Integration
-- OAuth-based GitHub authentication via Next.js route handlers
+- OAuth-based GitHub authentication (with CSRF `state` validation) via Next.js route handlers
 - Repository browsing and file import directly into the editor
 - Support for private repositories with appropriate scopes
+
+---
+
+## Security Model
+
+- **Room codes** are generated with the Web Crypto CSPRNG (8 characters, 32-symbol alphabet).
+- **Doc tokens** are 192-bit server-generated capabilities; one per member, revoked on kick/leave.
+- **Identity validation**: room/file ids are validated at the upgrade boundary; malformed encodings and ids containing `/` are rejected.
+- **HTTP surface**: `/health` exposes counts only; `/stats` exposes aggregates (no room ids).
+- **Input limits**: 2 MiB per WebSocket message, 1 MiB per shared file, 200 files per room, 2 000 chars per chat message (10 per 5 s per peer).
+- **File proxy** (`/api/github/file`): GitHub-host allowlist enforced on every redirect hop, 5 MiB response cap, 15 s timeout, default ports only.
+- **OAuth**: random `state` bound to a short-lived httpOnly cookie and verified in the callback; token-bearing pages are served `Cache-Control: no-store`.
 
 ---
 
@@ -129,8 +149,17 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 
 ```
 collabify/
-├── code-collab/         # Next.js 16 app (UI + API routes)
+├── frontend/            # Next.js 16 app (UI + API routes)
+│   └── src/
+│       ├── app/         # Pages and API route handlers
+│       ├── components/  # Editor, modals, chat, file explorer
+│       ├── hooks/       # React hooks (collab room, theme, resize)
+│       ├── lib/         # Monaco bootstrap, themes, editor config
+│       ├── services/    # Collab WS client, GitHub client, storage
+│       └── utils/       # Language detection
 └── socket-provider/     # Node.js WebSocket server for Yjs sync + room control
+    ├── src/
+    └── test/            # Integration + regression test suite (node:test)
 ```
 
 ---
@@ -139,7 +168,7 @@ collabify/
 
 ### Prerequisites
 
-- Node.js 20.9 or later
+- Node.js 20.9 or later (24+ recommended for the socket provider)
 - A GitHub OAuth App (for repository import)
 
 ### 1. Start the Socket Provider
@@ -153,13 +182,13 @@ npm run dev          # listens on ws://localhost:4000
 
 Health endpoints:
 
-- `http://localhost:4000/health`
-- `http://localhost:4000/stats`
+- `http://localhost:4000/health` — liveness + counts
+- `http://localhost:4000/stats` — aggregate room/doc/member counts
 
-### 2. Start the CodeCollab App
+### 2. Start the Collabify App
 
 ```bash
-cd code-collab
+cd frontend
 npm install
 cp .env.example .env # fill in GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
 npm run dev          # serves http://localhost:3000
@@ -171,15 +200,15 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-### `code-collab/.env`
+### `frontend/.env`
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NEXT_PUBLIC_COLLAB_URL` | WebSocket URL of socket-provider | `ws://localhost:4000` |
 | `GITHUB_CLIENT_ID` | GitHub OAuth App client ID | Required |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret | Required |
-| `GITHUB_OAUTH_SCOPES` | OAuth scopes requested during authorization | `repo read:org read:user` |
-| `APP_PUBLIC_URL` | Public URL of this app (used for OAuth redirect) | `http://localhost:3000` |
+| `GITHUB_OAUTH_SCOPES` | OAuth scopes requested during authorization (`repo` includes write access to private repos — the app itself only reads) | `repo read:org read:user` |
+| `APP_PUBLIC_URL` | Public URL of this app (used for the OAuth redirect_uri) | `http://localhost:3000` |
 
 ### `socket-provider/.env`
 
@@ -188,11 +217,34 @@ Open `http://localhost:3000`.
 | `PORT` | WebSocket server listen port | `4000` |
 | `HOST` | WebSocket server listen host | `0.0.0.0` |
 | `SOCKET_DEBUG` | `true` for verbose per-message logging | `false` |
+| `TLS_CERT` | Path to TLS certificate (enables HTTPS/WSS; omit for plain HTTP/WS) | — |
+| `TLS_KEY` | Path to TLS private key | — |
 
 ---
 
-## Monaco Load Fix
+## Development & Tests
+
+### Socket provider
+
+```bash
+cd socket-provider
+npm test        # node:test integration suite (spawns a real server per file)
+```
+
+The suite covers the room lifecycle (create/join/approve/kick/lock/chat), doc lifecycle (share/unshare/GC/destroy), and regressions for every previously-found crash and authorization bypass (malformed URIs, null reorder elements, doc tokens, room takeover, kick revocation, `/stats` enumeration).
+
+### Frontend
+
+```bash
+cd frontend
+npm run typecheck   # tsc --noEmit
+npm run build       # production build (also type-checks)
+```
+
+---
+
+## Monaco Loader
 
 Monaco is bundled directly from npm (`monaco-editor`) and passed to the `@monaco-editor/react` loader using `loader.config({ monaco })`. Web workers are wired through Turbopack via `new Worker(new URL(...))`, so the editor loads reliably without any CDN dependency.
 
-See `code-collab/src/lib/monacoBootstrap.ts`.
+See `frontend/src/lib/monacoBootstrap.ts`.
