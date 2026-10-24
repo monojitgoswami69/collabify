@@ -80,9 +80,21 @@ function ensureSheet(): HTMLStyleElement | null {
   return el;
 }
 
+// Awareness `user.color` arrives from remote peers over the doc channel and
+// is interpolated into a stylesheet — only #rrggbb-style hex is ever allowed
+// through; anything else could close a declaration block and inject rules.
+const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
+const FALLBACK_COLOR = '#888888';
+
 function escapeForCssContent(s: string): string {
-  // CSS content strings — escape the four chars that can terminate the literal.
-  return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, ' ');
+  // CSS content strings — escape every char that can terminate the literal.
+  // Raw CR/FF are "newline" per css-syntax-3 and produce a bad-string token
+  // that ends the string early, so they are escaped like LF.
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/[\n\r\f]/g, ' ');
 }
 
 function rebuild() {
@@ -130,9 +142,12 @@ export function syncPeerCursors(
     if (clientID === localId) return;
     const user = state.user;
     if (!user?.color || !user?.name) return;
+    // Peer-controlled values: validate the color, keep the name escaped.
+    const color = COLOR_RE.test(user.color) ? user.color : FALLBACK_COLOR;
+    const name = user.name.slice(0, 40);
     const existing = activePeers.get(clientID);
-    if (!existing || existing.color !== user.color || existing.name !== user.name) {
-      activePeers.set(clientID, { color: user.color, name: user.name });
+    if (!existing || existing.color !== color || existing.name !== name) {
+      activePeers.set(clientID, { color, name });
       dirty = true;
     }
   });
@@ -148,13 +163,6 @@ export function syncPeerCursors(
   if (dirty) scheduleRebuild();
 }
 
-/**
- * Remove a single peer (e.g. on local editor unmount). Doesn't tear down the
- * whole stylesheet — other editors on the page may still need it.
- */
-export function dropPeer(clientID: number): void {
-  if (activePeers.delete(clientID)) scheduleRebuild();
-}
 
 /**
  * Clear all peer styles. Useful when leaving a room and we know no editor

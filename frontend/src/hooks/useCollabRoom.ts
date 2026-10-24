@@ -54,6 +54,14 @@ export function useCollabRoom() {
 
   const [joinError, setJoinError] = useState<string | null>(null);
   const providerRef = useRef<CollabProvider | null>(null);
+  // Outstanding toast dismissal/reset timers — cleared on unmount so no timer
+  // fires setState on a dead hook.
+  const toastTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  const trackTimer = useCallback(<T extends ReturnType<typeof setTimeout>>(t: T): T => {
+    toastTimersRef.current.add(t);
+    return t;
+  }, []);
 
   // ── Toast helpers ────────────────────────────────────────────────────
 
@@ -62,12 +70,14 @@ export function useCollabRoom() {
       ...prev,
       toasts: prev.toasts.map((t) => (t.id === id ? { ...t, exiting: true } : t)),
     }));
-    setTimeout(() => {
+    const t = setTimeout(() => {
+      toastTimersRef.current.delete(t);
       setState((prev) => ({
         ...prev,
         toasts: prev.toasts.filter((t) => t.id !== id),
       }));
     }, 300);
+    toastTimersRef.current.add(t);
   }, []);
 
   const addToast = useCallback(
@@ -77,7 +87,11 @@ export function useCollabRoom() {
         ...prev,
         toasts: [...prev.toasts.slice(-4), { id, message, type }],
       }));
-      setTimeout(() => dismissToast(id), 4000);
+      const t = setTimeout(() => {
+        toastTimersRef.current.delete(t);
+        dismissToast(id);
+      }, 4000);
+      toastTimersRef.current.add(t);
     },
     [dismissToast],
   );
@@ -105,8 +119,10 @@ export function useCollabRoom() {
       onError: (msg) => {
         const prov = providerRef.current;
         const isRoomNotFound = msg.toLowerCase().includes('does not exist');
+        const isLocked = msg.toLowerCase().includes('locked');
+        const isRoomLevelError = isRoomNotFound || isLocked; // inline in the join modal
 
-        if (prov && !prov.isHost && isRoomNotFound) {
+        if (prov && !prov.isHost && isRoomLevelError) {
           setJoinError(msg);
           prov.destroy();
           providerRef.current = null;
@@ -141,6 +157,9 @@ export function useCollabRoom() {
       },
       onRoomClosed: () => {
         addToast('Room was closed by the host', 'error');
+        // Destroy the provider so the control socket actually closes — the
+        // server signals room-closed but may leave the socket open.
+        providerRef.current?.destroy();
         providerRef.current = null;
         setState((prev) => ({
           ...prev,
@@ -174,7 +193,11 @@ export function useCollabRoom() {
         addToast('You joined the room!', 'success');
       },
       onChatMessage: (message) =>
-        setState((prev) => ({ ...prev, chatMessages: [...prev.chatMessages, message] })),
+        setState((prev) => {
+          // Cap the in-memory history; nothing virtualizes this list.
+          const chatMessages = [...prev.chatMessages, message];
+          return { ...prev, chatMessages: chatMessages.slice(-200) };
+        }),
       onConnectionLost: () => {
         addToast('Lost connection to collab server. Please rejoin.', 'error');
         providerRef.current?.destroy();
@@ -330,6 +353,8 @@ export function useCollabRoom() {
 
   useEffect(() => {
     return () => {
+      for (const t of toastTimersRef.current) clearTimeout(t);
+      toastTimersRef.current.clear();
       providerRef.current?.destroy();
     };
   }, []);

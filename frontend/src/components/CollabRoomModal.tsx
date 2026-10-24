@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, memo, useRef } from 'react';
 import { useTheme } from '@/hooks/useTheme';
 import { useMountTransition } from '@/hooks/useMountTransition';
 import { X, Users, Plus, LogIn } from 'lucide-react';
@@ -14,11 +14,16 @@ interface Props {
   onClearJoinError?: () => void;
 }
 
+// Room IDs are bearer identifiers for the room — generated with the Web
+// Crypto CSPRNG, never Math.random (predictable PRNG).
+const ROOM_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
 function generateRoomId(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
   let id = '';
-  for (let i = 0; i < 6; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < bytes.length; i++) {
+    id += ROOM_ID_ALPHABET[bytes[i]! % ROOM_ID_ALPHABET.length];
   }
   return id;
 }
@@ -34,15 +39,20 @@ export const CollabRoomModal = memo(function CollabRoomModal({
   const { isDark } = useTheme();
   const [displayName, setDisplayName] = useState('');
   const [roomId, setRoomId] = useState('');
+  // Guard against the persist effect overwriting the stored name with ''
+  // before the mount read restores it.
+  const hydratedRef = useRef(false);
 
   // Initialise once on the client (avoids hydration mismatch).
   useEffect(() => {
-    setDisplayName(localStorage.getItem('codecollab_displayName') || '');
+    setDisplayName(localStorage.getItem('collabify_displayName') || '');
+    hydratedRef.current = true;
   }, []);
 
   useEffect(() => {
+    if (!hydratedRef.current) return;
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('codecollab_displayName', displayName);
+      localStorage.setItem('collabify_displayName', displayName);
     }
   }, [displayName]);
 

@@ -149,6 +149,7 @@ export const ChatPanel = memo(function ChatPanel({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Type a message..."
+            maxLength={2000}
             className={`w-full pl-3 pr-10 py-2 rounded-lg text-[12px] focus:outline-hidden transition-colors border ${inputBg} ${textPrimary} placeholder:text-slate-400/60 focus:ring-1 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7]/50`}
           />
           <button

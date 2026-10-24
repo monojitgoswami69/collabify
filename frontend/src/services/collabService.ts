@@ -105,12 +105,15 @@ function buildWsUrl(path: string): string {
 const CLOSE = {
   NORMAL: 1000,
   GOING_AWAY: 1001,
+  POLICY_VIOLATION: 1008, // missing/invalid doc token, revoked membership
   FILE_UNSHARED: 4001,
 } as const;
 const NO_RETRY_CODES = new Set<number>([
   CLOSE.NORMAL,
   CLOSE.GOING_AWAY,
+  CLOSE.POLICY_VIOLATION,
   CLOSE.FILE_UNSHARED,
+  1009, // ws-level "message too big" — retrying would resend the same frame
 ]);
 
 export class DocConnection {
@@ -124,6 +127,7 @@ export class DocConnection {
   private _roomId = '';
   private _displayName = '';
   private _color = '';
+  private _token = '';
 
   constructor(fileId: string) {
     this.fileId = fileId;
@@ -131,11 +135,12 @@ export class DocConnection {
     this.awareness = new Awareness(this.doc);
   }
 
-  connect(roomId: string, displayName: string, color: string) {
+  connect(roomId: string, displayName: string, color: string, token: string) {
     if (this._destroyed) return;
     this._roomId = roomId;
     this._displayName = displayName;
     this._color = color;
+    this._token = token;
 
     this.awareness.setLocalStateField('user', { name: displayName, color });
     this.doc.on('update', this._onDocUpdate);
@@ -146,7 +151,8 @@ export class DocConnection {
   private _openSocket() {
     if (this._destroyed) return;
     const wsUrl = buildWsUrl(
-      `/doc/${encodeURIComponent(this._roomId)}/${encodeURIComponent(this.fileId)}`,
+      `/doc/${encodeURIComponent(this._roomId)}/${encodeURIComponent(this.fileId)}` +
+        `?token=${encodeURIComponent(this._token)}`,
     );
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
@@ -292,6 +298,7 @@ export class CollabProvider {
   private _status: CollabStatus = 'disconnected';
   private _isHost = false;
   private _peerId = '';
+  private _roomToken = '';
   private _destroyed = false;
   private _pendingMessages: string[] = [];
   private _opened = false;
@@ -333,6 +340,9 @@ export class CollabProvider {
 
     ws.onclose = () => {
       this._opened = false;
+      // A destroyed provider's socket closes asynchronously — after a new
+      // provider may already be installed. Never let that clobber state.
+      if (this._destroyed) return;
       const wasConnected = this._status === 'connected' || this._status === 'waiting-approval';
       if (this._status !== 'rejected' && this._status !== 'error') {
         this._setStatus('disconnected');
@@ -397,7 +407,7 @@ export class CollabProvider {
     let conn = this.docConnections.get(fileId);
     if (conn) return conn;
     conn = new DocConnection(fileId);
-    conn.connect(this.roomId, this.displayName, this.color);
+    conn.connect(this.roomId, this.displayName, this.color, this._roomToken);
     this.docConnections.set(fileId, conn);
     return conn;
   }
@@ -434,6 +444,7 @@ export class CollabProvider {
     switch (msg.type) {
       case 'room-created':
         this._peerId = (msg.peerId as string) || '';
+        this._roomToken = (msg.roomToken as string) || '';
         this._isHost = true;
         this._setStatus('connected');
         break;
@@ -445,6 +456,7 @@ export class CollabProvider {
 
       case 'approved':
         this._peerId = (msg.peerId as string) || '';
+        this._roomToken = (msg.roomToken as string) || '';
         this._setStatus('connected');
         this.events.onApproved((msg.sharedFiles as SharedFileInfo[]) || []);
         break;
@@ -508,8 +520,11 @@ export class CollabProvider {
         break;
 
       case 'error':
+        // A server-side rejection of one action (oversized file, locked room,
+        // …) is transient: it must NOT flip the connection status to 'error',
+        // which would tear down the editor binding and silently desync the
+        // host. Surface the message; keep the current status.
         this.events.onError((msg.message as string) || 'Unknown error');
-        this._setStatus('error');
         break;
 
       case 'kicked':
