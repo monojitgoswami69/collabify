@@ -553,7 +553,15 @@ export const GitHubImportModal = memo(function GitHubImportModal({ isOpen, onClo
                           selectedRepo.default_branch,
                         );
                         onImportRepo(selectedRepo, data.tree);
-                        onClose();
+                        if (data.truncated) {
+                          // Keep the modal open so the warning is actually
+                          // read; the files are already imported.
+                          setFilesError(
+                            'Imported with a partial file list — GitHub truncated the repository tree.',
+                          );
+                        } else {
+                          onClose();
+                        }
                       } catch (e) {
                         setFilesError((e as Error).message);
                       } finally {

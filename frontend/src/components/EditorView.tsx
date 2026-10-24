@@ -364,9 +364,6 @@ export function EditorView({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Suppress unused warning when fontSize setter isn't directly invoked.
-  void setFontSize;
-
   const isInRoom =
     collab.status === 'connected' ||
     collab.status === 'waiting-approval' ||

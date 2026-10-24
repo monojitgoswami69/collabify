@@ -109,3 +109,97 @@ test('unshare closes attached doc sockets (doc-removed)', async () => {
   assert.equal(doc.closeCode, 1000, 'doc socket closed with doc-removed');
   host.close(); doc.terminate();
 });
+import * as Y from 'yjs';
+import * as encoding from 'lib0/encoding.js';
+import * as decoding from 'lib0/decoding.js';
+import * as syncProtocol from 'y-protocols/sync.js';
+
+/** Attach, request state (sync step 1), and return the merged doc text. */
+async function readDocText(ws, ms = 600) {
+  const enc = encoding.createEncoder();
+  encoding.writeVarUint(enc, 0); // MSG_SYNC
+  syncProtocol.writeSyncStep1(enc, new Y.Doc());
+  ws.send(encoding.toUint8Array(enc));
+  await new Promise((r) => setTimeout(r, ms));
+  const doc = new Y.Doc();
+  for (const m of ws.messages.splice(0)) {
+    try {
+      const dec = decoding.createDecoder(new Uint8Array(m));
+      if (decoding.readVarUint(dec) === 0) {
+        syncProtocol.readSyncMessage(dec, encoding.createEncoder(), doc, 'probe');
+      }
+    } catch {}
+  }
+  return doc.getText('monaco').toString();
+}
+
+/** Hand-encode an awareness update (varuint count; per id: id, clock, JSON state). */
+function encodeFakeAwareness(ids) {
+  const enc = encoding.createEncoder();
+  encoding.writeVarUint(enc, ids.length);
+  for (const id of ids) {
+    encoding.writeVarUint(enc, id);
+    encoding.writeVarUint(enc, 1); // clock
+    encoding.writeVarString(enc, JSON.stringify({ user: { name: 'x', color: '#FF0000' } }));
+  }
+  return encoding.toUint8Array(enc);
+}
+
+test('post-GC re-attach preserves shared-file content (gc guard)', { timeout: 20_000 }, async () => {
+  const srv = await startServer({ DOC_GC_DELAY_MS: '300', PORT: String(SERVER_PORT + 1) });
+  const P = srv.port;
+  const connect = (path) => import('./helpers.mjs').then((h) => h.connect(path, P));
+  try {
+    const host = await connect('/room/R3GC');
+    send(host, { type: 'create', displayName: 'H', color: '#FF6B6B' });
+    const created = await findMsg(host, 'room-created');
+    send(host, { type: 'share-file', file: { id: 'f1', name: 'a.ts', language: '', content: 'PRECIOUS-COLLAB-STATE' } });
+    await findMsg(host, 'file-shared');
+
+    const doc = await connect(`/doc/R3GC/f1?token=${encodeURIComponent(created.roomToken)}`);
+    assert.equal(await readDocText(doc), 'PRECIOUS-COLLAB-STATE');
+    doc.close(); // last connection detaches -> GC timer (300ms)
+    await new Promise((r) => setTimeout(r, 900)); // GC fires — guard must keep the doc
+
+    const again = await connect(`/doc/R3GC/f1?token=${encodeURIComponent(created.roomToken)}`);
+    assert.equal(
+      await readDocText(again),
+      'PRECIOUS-COLLAB-STATE',
+      'content survives GC while the file is still shared',
+    );
+    // But unshare DOES free the doc.
+    send(host, { type: 'unshare-file', fileId: 'f1' });
+    await new Promise((r) => setTimeout(r, 600));
+    const health = await (await fetch(`http://127.0.0.1:${P}/health`)).json();
+    assert.equal(health.docs, 0, 'unshare still frees the doc');
+    host.close(); again.terminate();
+  } finally {
+    await srv.stop();
+  }
+});
+
+test('awareness id flooding disconnects the abuser', { timeout: 15_000 }, async () => {
+  const srv = await startServer({ DOC_GC_DELAY_MS: '300', PORT: String(SERVER_PORT + 2) });
+  const P = srv.port;
+  const connect = (path) => import('./helpers.mjs').then((h) => h.connect(path, P));
+  try {
+    const host = await connect('/room/R3AW');
+    send(host, { type: 'create', displayName: 'H', color: '#FF6B6B' });
+    const created = await findMsg(host, 'room-created');
+    send(host, { type: 'share-file', file: { id: 'f1', name: 'a', language: '', content: 'x' } });
+    await findMsg(host, 'file-shared');
+    const doc = await connect(`/doc/R3AW/f1?token=${encodeURIComponent(created.roomToken)}`);
+    await new Promise((r) => setTimeout(r, 200));
+    // Spoof 24 distinct awareness clientIDs from one connection.
+    const fakeIds = Array.from({ length: 24 }, (_, i) => 900000 + i);
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, 1); // MSG_AWARENESS
+    encoding.writeVarUint8Array(enc, encodeFakeAwareness(fakeIds));
+    doc.send(encoding.toUint8Array(enc));
+    await new Promise((r) => setTimeout(r, 600));
+    assert.equal(doc.closeCode, 1008, 'flooder disconnected with policy violation');
+    host.close(); doc.terminate();
+  } finally {
+    await srv.stop();
+  }
+});

@@ -7,7 +7,6 @@
 // doc sockets — see DocRegistry.detachOwner.
 
 import { randomBytes } from 'node:crypto';
-import { WebSocket } from 'ws';
 import { OUT } from './constants.js';
 import { sendJson } from './util.js';
 
@@ -134,10 +133,12 @@ export class Room {
   // ── Broadcast ─────────────────────────────────────────────────────────
 
   broadcastJson(msg, excludePeerId = null) {
-    const data = JSON.stringify(msg);
     for (const [pid, member] of this.members) {
-      if (pid !== excludePeerId && member.ws.readyState === WebSocket.OPEN) {
-        try { member.ws.send(data); } catch {}
+      if (pid !== excludePeerId) {
+        // sendJson applies the readyState check AND the stalled-consumer
+        // guard — a raw ws.send here let a paused member buffer broadcasts
+        // without bound.
+        sendJson(member.ws, msg);
       }
     }
   }

@@ -15,9 +15,10 @@ function portForFile() {
 export const SERVER_PORT = portForFile();
 
 export async function startServer(env = {}) {
+  const port = env.PORT ? Number(env.PORT) : SERVER_PORT;
   const proc = spawn(process.execPath, ['src/server.js'], {
     cwd: new URL('..', import.meta.url).pathname,
-    env: { ...process.env, PORT: String(SERVER_PORT), HOST: '127.0.0.1', ...env },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
@@ -26,13 +27,14 @@ export async function startServer(env = {}) {
   // Wait for the HTTP health endpoint to answer.
   for (let i = 0; i < 100; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${SERVER_PORT}/health`);
+      const res = await fetch(`http://127.0.0.1:${port}/health`);
       if (res.ok) break;
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
   return {
     proc,
+    port,
     get output() { return out; },
     async stop() {
       proc.kill('SIGTERM');
@@ -41,9 +43,9 @@ export async function startServer(env = {}) {
   };
 }
 
-export function connect(path) {
+export function connect(path, port = SERVER_PORT) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${SERVER_PORT}${path}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`);
     ws.messages = [];
     ws.on('message', (d, isBin) => ws.messages.push(isBin ? d : d.toString()));
     ws.on('open', () => resolve(ws));

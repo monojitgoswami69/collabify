@@ -27,6 +27,8 @@ interface TreeNode {
   fileId?: string;
   isDir: boolean;
   repoKey?: string;
+  /** True on the `owner/repo` folder node — carries the delete affordance. */
+  isRepoFolder?: boolean;
   language?: string;
 }
 
@@ -56,13 +58,18 @@ function buildTree(files: StoredFile[]): TreeNode {
     const baseFullPath = groupName ? `${groupName}/${filePath}` : filePath;
     const parts: string[] = [];
     const baseParts = baseFullPath.split('/');
+    const repoFolderIndex = groupName ? groupName.split('/').length - 1 : -1;
     for (let i = 0; i < baseParts.length; i++) {
       const isLast = i === baseParts.length - 1;
       const role = isLast ? 'leaf' : 'dir';
       let part = baseParts[i]!;
       let prefix = parts.length ? `${parts.join('/')}/` : '';
       let candidate = `${prefix}${part}`;
-      for (let n = 2; usedPaths.get(candidate) !== undefined && usedPaths.get(candidate) !== role; n++) {
+      // Directory prefixes are shared between files with the same path; a
+      // leaf NEVER shares its exact path (same-name files used to overwrite
+      // each other's node), and a leaf/dir clash renames this file's segment.
+      const occupied = usedPaths.get(candidate);
+      for (let n = 2; occupied !== undefined && (role === 'leaf' || occupied !== role); n++) {
         const dot = part.lastIndexOf('.');
         const stem = dot > 0 ? part.slice(0, dot) : part;
         const ext = dot > 0 ? part.slice(dot) : '';
@@ -85,6 +92,7 @@ function buildTree(files: StoredFile[]): TreeNode {
           children: new Map(),
           isDir: !isLast,
           repoKey: groupName || undefined,
+          isRepoFolder: groupName ? i === repoFolderIndex : undefined,
         });
       }
 
@@ -184,7 +192,6 @@ interface TreeItemProps {
   expandedPaths: Set<string>;
   toggleExpand: (path: string) => void;
   isDark: boolean;
-  isCollabSection?: boolean;
   isDraggable?: boolean;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
@@ -202,7 +209,6 @@ const TreeItem = memo(function TreeItem({
   expandedPaths,
   toggleExpand,
   isDark,
-  isCollabSection,
   isDraggable,
   onDragStart,
   onDragEnd,
@@ -210,10 +216,10 @@ const TreeItem = memo(function TreeItem({
   const isExpanded = expandedPaths.has(node.path);
   const isActive = node.fileId === activeFileId;
   const isLoading = node.fileId === loadingFileId;
-  // The delete affordance belongs to the repo folder itself (the node whose
-  // path equals owner/repo) — the owner root may host several repos, and
-  // binding it there deleted only the first-imported one.
-  const isRepoRoot = !!node.repoKey && node.path === node.repoKey;
+  // The delete affordance belongs to the repo folder itself (owner/repo) —
+  // the owner root may host several repos, and binding it there deleted only
+  // the first-imported one. The flag survives dir-name disambiguation.
+  const isRepoRoot = !!node.repoKey && !!node.isRepoFolder;
   const textMuted = isDark ? 'text-slate-400' : 'text-slate-500';
 
   if (node.isDir) {
@@ -282,7 +288,6 @@ const TreeItem = memo(function TreeItem({
               expandedPaths={expandedPaths}
               toggleExpand={toggleExpand}
               isDark={isDark}
-              isCollabSection={isCollabSection}
               isDraggable={isDraggable}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
@@ -306,7 +311,7 @@ const TreeItem = memo(function TreeItem({
       onContextMenu={(e) => {
         if (onContextMenu && node.fileId) {
           e.preventDefault();
-          onContextMenu(e, node.fileId, !!isCollabSection);
+          onContextMenu(e, node.fileId, false);
         }
       }}
       draggable={isDraggable}
@@ -329,7 +334,7 @@ const TreeItem = memo(function TreeItem({
         <LangIcon language={node.language || ''} size={13} />
       )}
       <span className="text-[13px] truncate">{node.name}</span>
-      {!isCollabSection && !node.repoKey && (
+      {!node.repoKey && (
         <button
           onClick={(e) => {
             e.stopPropagation();

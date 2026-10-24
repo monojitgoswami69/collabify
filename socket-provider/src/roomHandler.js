@@ -132,6 +132,10 @@ export function createRoomHandler({ rooms, docs }) {
 
           case CONTROL.APPROVE: {
             if (!room || !room.isHost(peerId)) return;
+            if (room.members.size >= MAX_MEMBERS_PER_ROOM) {
+              sendJson(ws, { type: OUT.ERROR, message: 'Room is full' });
+              return;
+            }
             const target = typeof msg.peerId === 'string' ? msg.peerId : '';
             const member = room.approve(target);
             if (!member) return;

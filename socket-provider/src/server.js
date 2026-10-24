@@ -184,6 +184,16 @@ const wss = new WebSocketServer({
 const handleRoom = createRoomHandler({ rooms, docs });
 const handleDoc = createDocHandler({ rooms, docs });
 
+// A doc whose file is still shared in a live room must survive GC — the
+// Y.Doc holds the only copy of the collaborative state. Room ids cannot
+// contain '/', so the first '/' cleanly splits roomId from fileId.
+docs.setGcGuard((docName) => {
+  const slash = docName.indexOf('/');
+  if (slash === -1) return false;
+  const room = rooms.get(docName.slice(0, slash));
+  return room ? room.hasSharedFile(docName.slice(slash + 1)) : false;
+});
+
 server.on('upgrade', (req, socket, head) => {
   const url = safeParseUrl(req);
   if (!url) {

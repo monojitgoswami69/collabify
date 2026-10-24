@@ -31,6 +31,19 @@ export class DocRegistry {
     /** ownerKey -> Set<ws> — live sockets opened with that owner key. */
     /** @type {Map<string, Set<import('ws').WebSocket>>} */
     this._owners = new Map();
+    /** Optional predicate: return true to keep a doc alive at GC time. */
+    this._gcGuard = null;
+  }
+
+  /**
+   * Install the keep-alive predicate used at GC time. The room layer sets
+   * this so a doc whose file is still shared in a live room is NEVER
+   * destroyed — its Y.Doc holds the only copy of the collaborative state
+   * (seed happens once, at share time).
+   * @param {(docName: string) => boolean} guard
+   */
+  setGcGuard(guard) {
+    this._gcGuard = guard;
   }
 
   /**
@@ -102,14 +115,6 @@ export class DocRegistry {
     this.docs.set(docName, entry);
     log.debug('docs', `created ${docName}`);
     return entry;
-  }
-
-  has(docName) {
-    return this.docs.has(docName);
-  }
-
-  get(docName) {
-    return this.docs.get(docName);
   }
 
   /** Initialize the Y.Text 'monaco' with seed content, if currently empty. */
@@ -238,9 +243,13 @@ export class DocRegistry {
     const timer = setTimeout(() => {
       const entry = this.docs.get(docName);
       if (entry && entry.conns.size === 0) {
-        this._teardown(entry);
-        this.docs.delete(docName);
-        log.debug('docs', `gc destroyed ${docName}`);
+        if (this._gcGuard && this._gcGuard(docName)) {
+          log.debug('docs', `gc skipped (still shared) for ${docName}`);
+        } else {
+          this._teardown(entry);
+          this.docs.delete(docName);
+          log.debug('docs', `gc destroyed ${docName}`);
+        }
       }
       this._gcTimers.delete(docName);
     }, DOC_GC_DELAY_MS);

@@ -113,7 +113,7 @@ export const CollabRoomModal = memo(function CollabRoomModal({
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="e.g. John"
-              maxLength={30}
+              maxLength={40}
               className={`w-full px-4 py-3 rounded-xl border ${inputBg} ${inputBorder} ${inputText} text-base text-center placeholder-slate-500 focus:outline-hidden focus:ring-2 focus:ring-[#CAA4F7]/50 focus:border-[#CAA4F7] transition-all font-medium`}
             />
           </div>

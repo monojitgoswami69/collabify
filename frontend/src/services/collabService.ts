@@ -332,6 +332,7 @@ export class CollabProvider {
     };
 
     ws.onmessage = (event) => {
+      if (this._destroyed) return; // late frame from a replaced provider
       if (typeof event.data !== 'string') return;
       try {
         const msg = JSON.parse(event.data);

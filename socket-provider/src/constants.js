@@ -48,7 +48,10 @@ export const CURSOR_COLORS = [
 
 // Heartbeats / GC
 export const HEARTBEAT_INTERVAL_MS = 25_000;
-export const DOC_GC_DELAY_MS = 30_000;
+// How long an unattached doc lingers before GC. Overridable for tests.
+// NOTE: docs whose file is still shared in a live room are NOT destroyed
+// (gc guard) — the collaborative state must outlive viewer disconnects.
+export const DOC_GC_DELAY_MS = Number(process.env.DOC_GC_DELAY_MS ?? 30_000);
 
 // Input limits — applied per-message at the control channel boundary.
 // Tuned so that a typical large source file (~ a few hundred KB) goes through
@@ -62,16 +65,17 @@ export const MAX_CHAT_LEN = 2000;
 
 // Identity grammar enforced after percent-decoding at the upgrade boundary.
 // A roomId containing '/' would corrupt the `roomId/fileId` doc-key namespace
-// (cross-room collisions in DocRegistry and destroyByPrefix); file ids use the
-// client's `Date.now()` / `Date.now()-index` shapes.
+// (cross-room collisions in DocRegistry and destroyByPrefix). Client file ids
+// are crypto.randomUUID() / `${uuid}-${index}` — both inside FILE_ID_RE.
 export const ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export const FILE_ID_RE = /^[A-Za-z0-9._-]{1,200}$/;
 
 // Global resource caps — modest ceilings so a scripted client cannot grow
 // server memory without bound. Normal usage never approaches these.
-export const MAX_ROOMS = 5_000;
-export const MAX_MEMBERS_PER_ROOM = 64;
-export const MAX_PENDING_PER_ROOM = 50;
+// Env-overridable for tests.
+export const MAX_ROOMS = Number(process.env.MAX_ROOMS ?? 5_000);
+export const MAX_MEMBERS_PER_ROOM = Number(process.env.MAX_MEMBERS_PER_ROOM ?? 64);
+export const MAX_PENDING_PER_ROOM = Number(process.env.MAX_PENDING_PER_ROOM ?? 50);
 // Max awareness clientIDs one connection may claim (a legit client has one).
 export const MAX_AWARENESS_IDS_PER_CONN = 16;
 // Per-socket send buffer before the peer is considered a stalled consumer.

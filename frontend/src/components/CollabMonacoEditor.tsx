@@ -79,6 +79,9 @@ export function CollabMonacoEditor({
       clearAllPeers();
       binding.destroy();
       bindingRef.current = null;
+      // Close the doc socket for this file — without this, every viewed file
+      // left a live WebSocket + Y.Doc open for the page lifetime.
+      provider.closeFileConnection(file.id);
     };
     // `provider` reference is stable across renders (held in React state via
     // useCollabRoom); status is what flips, so list it explicitly.

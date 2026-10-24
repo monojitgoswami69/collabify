@@ -243,6 +243,20 @@ export const LANGUAGE_ID_MAP: Record<string, string> = {
   Verilog: 'plaintext',
   VHDL: 'plaintext',
   CMake: 'plaintext',
+  // Also produced by Magika classification (detectLanguage's MAGIKA_LABEL_MAP)
+  // with no monaco 0.55 grammar:
+  Zig: 'plaintext',
+  Nim: 'plaintext',
+  Gleam: 'plaintext',
+  Groovy: 'plaintext',
+  AWK: 'plaintext',
+  Lisp: 'plaintext',
+  Scheme: 'plaintext',
+  Prolog: 'plaintext',
+  Bazel: 'plaintext',
+  Gradle: 'plaintext',
+  CSV: 'plaintext',
+  TSV: 'plaintext',
 };
 
 export function toMonacoLanguageId(displayName: string): string {

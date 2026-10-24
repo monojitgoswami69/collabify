@@ -143,7 +143,11 @@ export function useCollabRoom() {
         }
 
         addToast(msg, 'error');
-        if (prov && !prov.isHost) {
+        // A create/join that never completes (e.g. 'Room already exists',
+        // capacity) must not leave the host stuck in 'connecting' forever.
+        const isConnecting = prov ? prov.status === 'connecting' : false;
+        if (prov && (!prov.isHost || isConnecting)) {
+          if (prov.isHost && isConnecting) setJoinError(msg);
           prov.destroy();
           providerRef.current = null;
           setState((prev) => ({
