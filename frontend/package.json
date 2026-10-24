@@ -10,9 +10,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "clsx": "^2.1.1",
     "developer-icons": "^7.0.1",
-    "framer-motion": "^12.40.0",
     "lib0": "^0.2.117",
     "lucide-react": "^1.17.0",
     "magika": "^1.0.0",
@@ -21,7 +19,6 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-qr-code": "^2.0.21",
-    "tailwind-merge": "^3.6.0",
     "y-monaco": "^0.1.6",
     "y-protocols": "^1.0.7",
     "yjs": "^13.6.31"
