@@ -1,8 +1,8 @@
 // GitHub client — talks to /api/* (Next.js route handlers) and handles OAuth popup.
 
-const GH_TOKEN_KEY = 'codecollab-github-token';
-const GH_USER_KEY = 'codecollab-github-user';
-const OAUTH_RESULT_KEY = 'codecollab-github-oauth-result';
+const GH_TOKEN_KEY = 'collabify-github-token';
+const GH_USER_KEY = 'collabify-github-user';
+const OAUTH_RESULT_KEY = 'collabify-github-oauth-result';
 
 function apiUrl(path: string): string {
   const normalized = path.startsWith('/') ? path : `/${path}`;
@@ -27,19 +27,48 @@ function isOAuthPopupResult(value: unknown): value is OAuthPopupResult {
 
 // ─── Token Management ──────────────────────────────────────────────────
 
+// localStorage access can throw (SecurityError in privacy-restricted
+// contexts) — every accessor degrades to null/no-op instead of throwing.
+
+function safeGetItem(key: string): string | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetItem(key: string, value: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable — session-only auth */
+  }
+}
+
+function safeRemoveItem(key: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getStoredToken(): string | null {
-  if (typeof localStorage === 'undefined') return null;
-  return localStorage.getItem(GH_TOKEN_KEY);
+  return safeGetItem(GH_TOKEN_KEY);
 }
 
 export function storeToken(token: string): void {
-  localStorage.setItem(GH_TOKEN_KEY, token);
+  safeSetItem(GH_TOKEN_KEY, token);
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(GH_TOKEN_KEY);
-  localStorage.removeItem(GH_USER_KEY);
-  localStorage.removeItem(OAUTH_RESULT_KEY);
+  safeRemoveItem(GH_TOKEN_KEY);
+  safeRemoveItem(GH_USER_KEY);
+  safeRemoveItem(OAUTH_RESULT_KEY);
 }
 
 export interface GitHubUser {
@@ -49,17 +78,17 @@ export interface GitHubUser {
 }
 
 export function getStoredUser(): GitHubUser | null {
-  if (typeof localStorage === 'undefined') return null;
+  const raw = safeGetItem(GH_USER_KEY);
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(GH_USER_KEY);
-    return raw ? (JSON.parse(raw) as GitHubUser) : null;
+    return JSON.parse(raw) as GitHubUser;
   } catch {
     return null;
   }
 }
 
 export function storeUser(user: GitHubUser): void {
-  localStorage.setItem(GH_USER_KEY, JSON.stringify(user));
+  safeSetItem(GH_USER_KEY, JSON.stringify(user));
 }
 
 // ─── Auth Headers ──────────────────────────────────────────────────────
@@ -77,7 +106,7 @@ export function startOAuthPopup(): Promise<string> {
     const expectedOrigin = window.location.origin;
     const popupCloseGraceMs = 1500;
 
-    localStorage.removeItem(OAUTH_RESULT_KEY);
+    safeRemoveItem(OAUTH_RESULT_KEY);
 
     const width = 500;
     const height = 700;
@@ -109,16 +138,16 @@ export function startOAuthPopup(): Promise<string> {
     };
 
     const completeFromStorage = (): boolean => {
-      const raw = localStorage.getItem(OAUTH_RESULT_KEY);
+      const raw = safeGetItem(OAUTH_RESULT_KEY);
       if (!raw) return false;
       try {
         const payload = JSON.parse(raw);
-        localStorage.removeItem(OAUTH_RESULT_KEY);
+        safeRemoveItem(OAUTH_RESULT_KEY);
         if (!isOAuthPopupResult(payload)) return false;
         complete(payload);
         return true;
       } catch {
-        localStorage.removeItem(OAUTH_RESULT_KEY);
+        safeRemoveItem(OAUTH_RESULT_KEY);
         return false;
       }
     };
@@ -140,11 +169,11 @@ export function startOAuthPopup(): Promise<string> {
       if (event.key !== OAUTH_RESULT_KEY || !event.newValue) return;
       try {
         const payload = JSON.parse(event.newValue);
-        localStorage.removeItem(OAUTH_RESULT_KEY);
+        safeRemoveItem(OAUTH_RESULT_KEY);
         if (!isOAuthPopupResult(payload)) return;
         complete(payload);
       } catch {
-        localStorage.removeItem(OAUTH_RESULT_KEY);
+        safeRemoveItem(OAUTH_RESULT_KEY);
       }
     };
 
@@ -171,17 +200,24 @@ export function startOAuthPopup(): Promise<string> {
 // ─── User ──────────────────────────────────────────────────────────────
 
 export async function fetchGitHubUser(token: string): Promise<GitHubUser> {
+  let lastError = 'Failed to fetch GitHub user.';
   for (let attempt = 1; attempt <= 2; attempt++) {
     const res = await fetch(apiUrl('/github/user'), { headers: authHeaders(token) });
     if (res.ok) return res.json();
-    const retriable = res.status === 401 || res.status === 403 || res.status >= 500;
+    // 401 is deterministic (bad token) — fail fast. 403 is usually a rate
+    // limit and 5xx a transient GitHub failure; one retry after a beat.
+    const retriable = res.status === 403 || res.status >= 500;
     if (retriable && attempt < 2) {
       await delay(300);
       continue;
     }
-    throw new Error('Failed to fetch GitHub user. Token may be invalid.');
+    lastError =
+      res.status === 401
+        ? 'Your GitHub token is invalid or expired — please reconnect.'
+        : 'Failed to fetch GitHub user.';
+    break;
   }
-  throw new Error('Failed to fetch GitHub user.');
+  throw new Error(lastError);
 }
 
 // ─── Repos ─────────────────────────────────────────────────────────────
@@ -229,10 +265,11 @@ export async function getRepoContents(
 ): Promise<GitHubContent[]> {
   const params = new URLSearchParams();
   if (path) params.set('path', path);
-  const res = await fetch(
-    `${apiUrl(`/github/repos/${owner}/${repo}/contents`)}?${params}`,
-    { headers: authHeaders(token) },
+  // Encode path segments so '?', '#', '..' and spaces survive the round trip.
+  const base = apiUrl(
+    `/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`,
   );
+  const res = await fetch(`${base}?${params}`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error(`Failed to fetch contents for ${owner}/${repo}/${path}`);
   const data = await res.json();
   if (!Array.isArray(data)) return [data];
@@ -272,8 +309,12 @@ export async function fetchRepoTree(
   repo: string,
   branch: string,
 ): Promise<RepoTree> {
+  // %2F-encode the branch so slashed branch names (release/v1) survive the
+  // single dynamic route segment and reach GitHub intact.
   const res = await fetch(
-    apiUrl(`/github/repos/${owner}/${repo}/tree/${branch}`),
+    apiUrl(
+      `/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/tree/${encodeURIComponent(branch)}`,
+    ),
     { headers: authHeaders(token) },
   );
   if (!res.ok) throw new Error(`Failed to fetch repo tree for ${owner}/${repo}`);
@@ -287,11 +328,23 @@ export async function fetchRawContent(
   path: string,
   token?: string | null,
 ): Promise<string> {
-  const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+  const rawUrl = buildRawUrl(owner, repo, branch, path);
   const params = new URLSearchParams({ url: rawUrl });
   const res = await fetch(`${apiUrl('/github/file')}?${params}`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error('Failed to fetch file content.');
   return res.text();
+}
+
+function encodePath(path: string): string {
+  return path
+    .split('/')
+    .filter((s) => s !== '' && s !== '.' && s !== '..')
+    .map(encodeURIComponent)
+    .join('/');
+}
+
+function buildRawUrl(owner: string, repo: string, branch: string, path: string): string {
+  return `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodePath(path)}`;
 }
 
 // ─── Public URL parsing ────────────────────────────────────────────────
@@ -305,26 +358,29 @@ export interface ParsedGitHubUrl {
 }
 
 export function parseGitHubUrl(url: string): ParsedGitHubUrl | null {
-  const blobRegex = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/;
-  const blobMatch = url.match(blobRegex);
+  // Strip query/fragment first — GitHub's own "Copy permalink" links carry
+  // ?plain=1#L1-L5 which used to pollute the imported file name and path.
+  const stripped = url.split(/[?#]/, 1)[0] ?? url;
+  const blobRegex = /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i;
+  const blobMatch = stripped.match(blobRegex);
   if (blobMatch) {
-    const filePath = blobMatch[4];
+    const filePath = blobMatch[4]!;
     return {
-      owner: blobMatch[1],
-      repo: blobMatch[2],
-      branch: blobMatch[3],
+      owner: blobMatch[1]!,
+      repo: blobMatch[2]!,
+      branch: blobMatch[3]!,
       path: filePath,
       fileName: filePath.split('/').pop() || filePath,
     };
   }
-  const rawRegex = /^https?:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/;
-  const rawMatch = url.match(rawRegex);
+  const rawRegex = /^https?:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/i;
+  const rawMatch = stripped.match(rawRegex);
   if (rawMatch) {
-    const filePath = rawMatch[4];
+    const filePath = rawMatch[4]!;
     return {
-      owner: rawMatch[1],
-      repo: rawMatch[2],
-      branch: rawMatch[3],
+      owner: rawMatch[1]!,
+      repo: rawMatch[2]!,
+      branch: rawMatch[3]!,
       path: filePath,
       fileName: filePath.split('/').pop() || filePath,
     };
@@ -341,7 +397,7 @@ export async function fetchFromPublicUrl(
       'Invalid GitHub URL. Supported formats:\n• https://github.com/owner/repo/blob/branch/file\n• https://raw.githubusercontent.com/owner/repo/branch/file',
     );
   }
-  const rawUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/${parsed.branch}/${parsed.path}`;
+  const rawUrl = buildRawUrl(parsed.owner, parsed.repo, parsed.branch, parsed.path);
   const res = await fetch(rawUrl);
   if (!res.ok) {
     if (res.status === 404) {

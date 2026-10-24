@@ -13,9 +13,17 @@ export async function GET(
     const url = new URL(req.url);
     const path = url.searchParams.get('path') || '';
 
-    const ghUrl = path
-      ? `${GITHUB_API}/repos/${owner}/${repo}/contents/${path}`
-      : `${GITHUB_API}/repos/${owner}/${repo}/contents`;
+    // Encode every segment — raw interpolation let '?', '#', '..' and encoded
+    // slashes rewrite the upstream URL path.
+    const encodedPath = path
+      .split('/')
+      .filter((s) => s !== '' && s !== '.' && s !== '..')
+      .map(encodeURIComponent)
+      .join('/');
+
+    const ghUrl = encodedPath
+      ? `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}`
+      : `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents`;
 
     const res = await fetch(ghUrl, { headers: ghHeaders(auth) });
     if (!res.ok) {

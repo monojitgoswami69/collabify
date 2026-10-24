@@ -96,10 +96,13 @@ export const GitHubImportModal = memo(function GitHubImportModal({ isOpen, onClo
     const t = getStoredToken();
     if (!t) return;
     setReposLoading(true);
+    setAuthError('');
     try {
       const data = await listRepos(t, 1, 100);
       setRepos(data);
     } catch (e) {
+      // Surfaced in the repos view header (with a Disconnect shortcut) —
+      // before, an expired token silently showed "No repositories found."
       setAuthError((e as Error).message);
     } finally {
       setReposLoading(false);
@@ -203,6 +206,7 @@ export const GitHubImportModal = memo(function GitHubImportModal({ isOpen, onClo
 
   const handleUrlImport = async () => {
     if (!url.trim()) return;
+    if (urlLoading) return; // Enter key is not gated by the button's disabled state
     if (!parseGitHubUrl(url.trim())) {
       setUrlError(
         'Invalid GitHub URL. Use a github.com/…/blob/… or raw.githubusercontent.com/… link.',
@@ -447,6 +451,18 @@ export const GitHubImportModal = memo(function GitHubImportModal({ isOpen, onClo
                     className={`w-full pl-9 pr-4 py-2.5 rounded-xl border text-sm ${inputBg} focus:outline-hidden focus:ring-2 focus:ring-purple-500/50 transition-all`}
                   />
                 </div>
+                {authError && (
+                  <div className="mt-3 flex items-start gap-2 text-red-400 text-xs bg-red-500/10 rounded-lg px-3 py-2">
+                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                    <span className="flex-1">{authError}</span>
+                    <button
+                      onClick={handleDisconnect}
+                      className="shrink-0 font-bold underline underline-offset-2 hover:text-red-300"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar px-4 pb-4 space-y-1">
                 {reposLoading ? (

@@ -28,8 +28,10 @@ export function errorResponse(err: unknown): Response {
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  const message = err instanceof Error ? err.message : 'Unknown error';
-  return new Response(JSON.stringify({ error: message }), {
+  // Never pass internal error text (fetch failures, stack snippets) to the
+  // client — log it server-side and return a generic message.
+  console.error('[github-proxy] unexpected error:', err);
+  return new Response(JSON.stringify({ error: 'Unexpected server error' }), {
     status: 500,
     headers: { 'Content-Type': 'application/json' },
   });

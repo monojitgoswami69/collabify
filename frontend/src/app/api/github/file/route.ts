@@ -3,7 +3,9 @@ import { errorResponse } from '@/lib/github';
 
 export const dynamic = 'force-dynamic';
 
-// SECURITY: only allow downloads from GitHub's raw content + API hosts.
+// SECURITY: only allow downloads from GitHub's raw content + API hosts. Every
+// redirect hop is re-validated against this set (see fetchValidated below), so
+// an off-host Location header cannot turn this route into an open proxy.
 const ALLOWED_HOSTS = new Set([
   'raw.githubusercontent.com',
   'api.github.com',
@@ -12,6 +14,58 @@ const ALLOWED_HOSTS = new Set([
   'private-user-images.githubusercontent.com',
   'objects.githubusercontent.com',
 ]);
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MiB — this proxy serves source files
+const FETCH_TIMEOUT_MS = 15_000;
+const MAX_REDIRECTS = 5;
+
+function isAllowed(target: URL): boolean {
+  return (
+    (target.protocol === 'https:' || target.protocol === 'http:') &&
+    target.port === '' && // default ports only — no port probing of GitHub infra
+    ALLOWED_HOSTS.has(target.hostname)
+  );
+}
+
+/**
+ * Follow redirects manually, validating scheme/host/port of EVERY hop against
+ * the allowlist. `redirect: 'follow'` would blindly follow a Location header
+ * anywhere the first host sends it.
+ */
+async function fetchValidated(
+  start: URL,
+  headers: Record<string, string>,
+): Promise<Response> {
+  let target: URL = start;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const res = await fetch(target.toString(), {
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    // opaqueredirect only happens with mode:'no-cors'; treat 3xx manually:
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location');
+      if (!location) return res; // let the caller surface the odd 3xx
+      const next = new URL(location, target);
+      if (!isAllowed(next)) {
+        throw new HostNotAllowedError(next.hostname);
+      }
+      target = next;
+      continue;
+    }
+    return res;
+  }
+  throw new Error('Too many redirects');
+}
+
+class HostNotAllowedError extends Error {
+  hostname: string;
+  constructor(hostname: string) {
+    super(`Redirect host not allowed: ${hostname}`);
+    this.hostname = hostname;
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -34,7 +88,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    if (!ALLOWED_HOSTS.has(parsed.hostname)) {
+    if (!isAllowed(parsed)) {
       return new Response(JSON.stringify({ error: `Host not allowed: ${parsed.hostname}` }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -47,7 +101,7 @@ export async function GET(req: NextRequest) {
     };
     if (auth) headers.Authorization = auth;
 
-    const res = await fetch(parsed.toString(), { headers, redirect: 'follow' });
+    const res = await fetchValidated(parsed, headers);
     if (!res.ok) {
       return new Response(JSON.stringify({ error: 'Failed to fetch file' }), {
         status: res.status,
@@ -55,12 +109,53 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const text = await res.text();
-    return new Response(text, {
+    // Bounded read: stream up to MAX_FILE_BYTES, then cancel — an unbounded
+    // res.text() let a single codeload tarball URL exhaust server memory.
+    const reader = res.body?.getReader();
+    if (!reader) {
+      return new Response(JSON.stringify({ error: 'Empty upstream response' }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    let tooLarge = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > MAX_FILE_BYTES) {
+        tooLarge = true;
+        await reader.cancel().catch(() => {});
+        break;
+      }
+      chunks.push(value);
+    }
+    if (tooLarge) {
+      return new Response(JSON.stringify({ error: 'File exceeds the 5 MiB proxy limit' }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body = new Uint8Array(received);
+    let offset = 0;
+    for (const c of chunks) {
+      body.set(c, offset);
+      offset += c.byteLength;
+    }
+    return new Response(body, {
       status: 200,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   } catch (err) {
+    if (err instanceof HostNotAllowedError) {
+      return new Response(JSON.stringify({ error: err.message }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     return errorResponse(err);
   }
 }
