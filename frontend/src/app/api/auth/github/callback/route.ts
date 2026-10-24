@@ -35,6 +35,12 @@ function postMessageHtml(
   try {
     localStorage.setItem("collabify-github-oauth-result", JSON.stringify(payload));
   } catch (_) {}
+  // The opener consumes (and removes) this key via message or storage event.
+  // If it never does (closed/reloaded), self-clean so the token copy does
+  // not outlive the flow.
+  window.setTimeout(() => {
+    try { localStorage.removeItem("collabify-github-oauth-result"); } catch (_) {}
+  }, 10000);
   const sendResult = () => {
     if (!window.opener) return;
     window.opener.postMessage(payload, ${safeOrigin});
@@ -50,15 +56,19 @@ function postMessageHtml(
 </html>`;
 }
 
-function htmlResponse(payload: { token?: string; error?: string }, frontendOrigin: string) {
-  return new Response(postMessageHtml(payload, frontendOrigin), {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html',
-      // The body carries a live access token (or auth errors) — never cache.
-      'Cache-Control': 'no-store, max-age=0',
-    },
-  });
+function htmlResponse(payload: { token?: string; error?: string }, frontendOrigin: string, clearStateCookie = true) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'text/html',
+    // The body carries a live access token (or auth errors) — never cache.
+    'Cache-Control': 'no-store, max-age=0',
+  };
+  if (clearStateCookie) {
+    // The state is single-use: clear it once the callback has consumed it
+    // (or rejected the request) so a replayed URL cannot re-verify.
+    headers['Set-Cookie'] =
+      `${OAUTH_STATE_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`;
+  }
+  return new Response(postMessageHtml(payload, frontendOrigin), { status: 200, headers });
 }
 
 export async function GET(req: NextRequest) {

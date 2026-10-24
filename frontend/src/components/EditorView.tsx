@@ -27,20 +27,8 @@ import {
   PanelRightClose,
   Menu,
 } from 'lucide-react';
-import {
-  JavaScript,
-  TypeScript,
-  Python,
-  CPlusPlus,
-  C,
-  Java,
-  Go,
-  RustDark,
-  Ruby,
-  PHP,
-  GitHubDark,
-  GitHubLight,
-} from 'developer-icons';
+import { GitHubDark, GitHubLight } from 'developer-icons';
+import { langIconMap } from '@/lib/langIcons';
 import type { useCollabRoom } from '@/hooks/useCollabRoom';
 
 // Dynamic import keeps Monaco out of the SSR/build path entirely.
@@ -54,19 +42,6 @@ const CollabMonacoEditor = dynamic(
   { ssr: false },
 );
 
-const langIconMap: Record<string, { icon: React.ComponentType<{ size?: number; color?: string }> }> = {
-  JavaScript: { icon: JavaScript },
-  TypeScript: { icon: TypeScript },
-  Python: { icon: Python },
-  'C++': { icon: CPlusPlus },
-  C: { icon: C },
-  Java: { icon: Java },
-  Go: { icon: Go },
-  Rust: { icon: RustDark },
-  Ruby: { icon: Ruby },
-  PHP: { icon: PHP },
-};
-
 function LanguageIcon({
   language,
   size = 16,
@@ -78,11 +53,13 @@ function LanguageIcon({
   className?: string;
   colorOverride?: string;
 }) {
-  const entry = langIconMap[language];
-  if (!entry) return <FileCode size={size} className={className} />;
-  const Icon = entry.icon;
+  const Icon = langIconMap[language];
+  if (!Icon) return <FileCode size={size} className={className} />;
   return (
-    <div className={className} style={{ display: 'inline-flex', alignItems: 'center' }}>
+    <div
+      className={colorOverride ? `${className} ${colorOverride}` : className}
+      style={{ display: 'inline-flex', alignItems: 'center' }}
+    >
       <Icon size={size} color={colorOverride ? 'currentColor' : undefined} />
     </div>
   );

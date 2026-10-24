@@ -168,7 +168,7 @@ collabify/
 
 ### Prerequisites
 
-- Node.js 20.9 or later (24+ recommended for the socket provider)
+- Node.js 20.9 or later for the frontend; Node.js 24 or later for the socket provider (hard requirement in its `engines` field)
 - A GitHub OAuth App (for repository import)
 
 ### 1. Start the Socket Provider

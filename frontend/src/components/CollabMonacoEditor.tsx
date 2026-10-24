@@ -2,7 +2,7 @@
 
 // CollabMonacoEditor — Monaco bound to a per-file Yjs DocConnection.
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { MonacoBinding } from 'y-monaco';
@@ -33,6 +33,7 @@ export function CollabMonacoEditor({
   theme,
   fontSize,
   provider,
+  onChange,
   onCursorChange,
   onSelectionChange,
   onEditorReady,
@@ -122,6 +123,7 @@ export function CollabMonacoEditor({
   }, [theme]);
 
   const languageId = toMonacoLanguageId(file.language);
+  const options = useMemo(() => buildEditorOptions(fontSize), [fontSize]);
 
   return (
     <div className="relative w-full h-full">
@@ -130,6 +132,10 @@ export function CollabMonacoEditor({
         language={languageId}
         defaultValue=""
         path={`collab/${file.id}`}
+        // Fires for local AND remote changes (the binding drives the model),
+        // which is exactly what App.files needs: the persisted copy must
+        // track the collaborative document, not the pre-collab snapshot.
+        onChange={(v) => v !== undefined && onChange(v)}
         theme={theme === 'dark' ? 'catppuccin-mocha' : 'catppuccin-latte'}
         beforeMount={handleBeforeMount}
         onMount={handleEditorDidMount}
@@ -144,7 +150,7 @@ export function CollabMonacoEditor({
             />
           </div>
         }
-        options={buildEditorOptions(fontSize)}
+        options={options}
       />
     </div>
   );

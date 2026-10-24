@@ -104,7 +104,10 @@ export function useCollabRoom() {
         setState((prev) => ({
           ...prev,
           status,
-          isHost: prov?.isHost ?? prev.isHost,
+          // OR, not replace: createRoom optimistically sets isHost before the
+          // provider learns it from 'room-created' — a plain replace clobbered
+          // it back to false for the whole connecting window.
+          isHost: (prov?.isHost ?? false) || prev.isHost,
           peerId: prov?.peerId ?? prev.peerId,
         }));
       },

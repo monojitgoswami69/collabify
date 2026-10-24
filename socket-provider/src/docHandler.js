@@ -93,7 +93,7 @@ export function createDocHandler({ rooms, docs }) {
           }
         }
       } catch (err) {
-        log.debug('doc', `malformed message on ${docName}: ${err.message}`);
+        log.warn('doc', `error handling message on ${docName}:`, err);
       }
     });
 

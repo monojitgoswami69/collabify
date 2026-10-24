@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect, memo, useCallback } from 'react';
 import { StoredFile } from '@/services/storageService';
 import { SharedFileInfo } from '@/services/collabService';
+import { langIconMap } from '@/lib/langIcons';
 import { useTheme } from '@/hooks/useTheme';
 import {
   FileCode,
@@ -18,18 +19,6 @@ import {
   Minus,
   Folder,
 } from 'lucide-react';
-import {
-  JavaScript,
-  TypeScript,
-  Python,
-  CPlusPlus,
-  C,
-  Java,
-  Go,
-  RustDark,
-  Ruby,
-  PHP,
-} from 'developer-icons';
 
 interface TreeNode {
   name: string;
@@ -41,23 +30,9 @@ interface TreeNode {
   language?: string;
 }
 
-const langIconMap: Record<string, { icon: React.ComponentType<{ size?: number }> }> = {
-  JavaScript: { icon: JavaScript },
-  TypeScript: { icon: TypeScript },
-  Python: { icon: Python },
-  'C++': { icon: CPlusPlus },
-  C: { icon: C },
-  Java: { icon: Java },
-  Go: { icon: Go },
-  Rust: { icon: RustDark },
-  Ruby: { icon: Ruby },
-  PHP: { icon: PHP },
-};
-
 function LangIcon({ language, size = 14 }: { language: string; size?: number }) {
-  const entry = langIconMap[language];
-  if (!entry) return <FileCode size={size} />;
-  const Icon = entry.icon;
+  const Icon = langIconMap[language];
+  if (!Icon) return <FileCode size={size} />;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center' }}>
       <Icon size={size} />
@@ -68,10 +43,10 @@ function LangIcon({ language, size = 14 }: { language: string; size?: number }) 
 function buildTree(files: StoredFile[]): TreeNode {
   const root: TreeNode = { name: '', path: '', children: new Map(), isDir: true };
 
-  // Same-name files (upload twice, create/delete/recreate) must each get
-  // their own tree node — a shared node meant the earlier file's id was
-  // overwritten and the file became unreachable, with duplicate React keys.
-  const usedLeafPaths = new Set<string>();
+  // Same-path nodes with different roles must never share a tree node:
+  // leaf-vs-leaf (upload twice) hid the earlier file, and leaf-vs-dir (a
+  // local snippet named like a repo's owner) hid the whole subtree.
+  const usedPaths = new Map<string, 'dir' | 'leaf'>();
 
   for (const file of files) {
     const groupName = file.repoOrigin
@@ -79,18 +54,24 @@ function buildTree(files: StoredFile[]): TreeNode {
       : '';
     const filePath = file.path || file.name;
     const baseFullPath = groupName ? `${groupName}/${filePath}` : filePath;
-    let fullPath = baseFullPath;
-    for (let n = 2; usedLeafPaths.has(fullPath); n++) {
-      const lastSlash = baseFullPath.lastIndexOf('/');
-      const dir = lastSlash === -1 ? '' : baseFullPath.slice(0, lastSlash + 1);
-      const name = lastSlash === -1 ? baseFullPath : baseFullPath.slice(lastSlash + 1);
-      const dot = name.lastIndexOf('.');
-      const stem = dot > 0 ? name.slice(0, dot) : name;
-      const ext = dot > 0 ? name.slice(dot) : '';
-      fullPath = `${dir}${stem} (${n})${ext}`;
+    const parts: string[] = [];
+    const baseParts = baseFullPath.split('/');
+    for (let i = 0; i < baseParts.length; i++) {
+      const isLast = i === baseParts.length - 1;
+      const role = isLast ? 'leaf' : 'dir';
+      let part = baseParts[i]!;
+      let prefix = parts.length ? `${parts.join('/')}/` : '';
+      let candidate = `${prefix}${part}`;
+      for (let n = 2; usedPaths.get(candidate) !== undefined && usedPaths.get(candidate) !== role; n++) {
+        const dot = part.lastIndexOf('.');
+        const stem = dot > 0 ? part.slice(0, dot) : part;
+        const ext = dot > 0 ? part.slice(dot) : '';
+        candidate = `${prefix}${stem} (${n})${ext}`;
+      }
+      usedPaths.set(candidate, role);
+      parts.push(candidate.slice(prefix.length));
     }
-    usedLeafPaths.add(fullPath);
-    const parts = fullPath.split('/');
+    const fullPath = parts.join('/');
 
     let current = root;
     for (let i = 0; i < parts.length; i++) {
@@ -229,7 +210,10 @@ const TreeItem = memo(function TreeItem({
   const isExpanded = expandedPaths.has(node.path);
   const isActive = node.fileId === activeFileId;
   const isLoading = node.fileId === loadingFileId;
-  const isRepoRoot = depth === 0 && node.repoKey;
+  // The delete affordance belongs to the repo folder itself (the node whose
+  // path equals owner/repo) — the owner root may host several repos, and
+  // binding it there deleted only the first-imported one.
+  const isRepoRoot = !!node.repoKey && node.path === node.repoKey;
   const textMuted = isDark ? 'text-slate-400' : 'text-slate-500';
 
   if (node.isDir) {
@@ -482,7 +466,7 @@ export const FileExplorer = memo(function FileExplorer({
             }`}
             onDragOver={(e) => {
               e.preventDefault();
-              if (draggedFileId && !sharedFiles.some((f) => f.id === draggedFileId)) {
+              if (isHost && draggedFileId && !sharedFiles.some((f) => f.id === draggedFileId)) {
                 setIsOverCollab(true);
               }
             }}
@@ -501,6 +485,7 @@ export const FileExplorer = memo(function FileExplorer({
               e.preventDefault();
               setIsOverCollab(false);
               if (
+                isHost &&
                 draggedFileId &&
                 onAddToCollab &&
                 !sharedFiles.some((f) => f.id === draggedFileId)

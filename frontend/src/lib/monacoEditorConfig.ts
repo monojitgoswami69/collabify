@@ -219,27 +219,30 @@ export const LANGUAGE_ID_MAP: Record<string, string> = {
   Batch: 'bat',
   SQL: 'sql',
   Dockerfile: 'dockerfile',
-  Makefile: 'makefile',
+  Makefile: 'plaintext', // monaco 0.55 ships no makefile grammar
   GraphQL: 'graphql',
   JSX: 'javascript',
   TSX: 'typescript',
   Vue: 'html',
-  Diff: 'diff',
-  Protobuf: 'proto',
-  LaTeX: 'latex',
-  CoffeeScript: 'coffeescript',
+  Protobuf: 'protobuf',
+  CoffeeScript: 'coffee',
   Clojure: 'clojure',
-  Haskell: 'haskell',
-  Elixir: 'elixir',
-  Erlang: 'erlang',
-  OCaml: 'ocaml',
   Julia: 'julia',
   Solidity: 'sol',
-  Assembly: 'asm',
-  Verilog: 'verilog',
-  VHDL: 'vhdl',
-  CMake: 'cmake',
   reStructuredText: 'restructuredtext',
+  // The display names below have no grammar in monaco-editor 0.55 — mapping
+  // them to their "id" would silently disable tokenization; plaintext is the
+  // honest rendering until monaco ships grammars for them.
+  Diff: 'plaintext',
+  LaTeX: 'plaintext',
+  Haskell: 'plaintext',
+  Elixir: 'plaintext',
+  Erlang: 'plaintext',
+  OCaml: 'plaintext',
+  Assembly: 'plaintext',
+  Verilog: 'plaintext',
+  VHDL: 'plaintext',
+  CMake: 'plaintext',
 };
 
 export function toMonacoLanguageId(displayName: string): string {

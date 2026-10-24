@@ -12,7 +12,7 @@ import * as Y from 'yjs';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as syncProtocol from 'y-protocols/sync';
 import * as encoding from 'lib0/encoding';
-import { MSG_SYNC, MSG_AWARENESS, DOC_GC_DELAY_MS, CLOSE } from './constants.js';
+import { MSG_SYNC, MSG_AWARENESS, DOC_GC_DELAY_MS, CLOSE, MAX_AWARENESS_IDS_PER_CONN } from './constants.js';
 import { sendBinary } from './util.js';
 import { log } from './log.js';
 
@@ -72,6 +72,12 @@ export class DocRegistry {
         for (const id of added) conn.awarenessIds.add(id);
         for (const id of updated) conn.awarenessIds.add(id);
         for (const id of removed) conn.awarenessIds.delete(id);
+        // A legit client owns exactly one clientID; a cap keeps a malicious
+        // member from growing this set without bound with spoofed ids.
+        if (conn.awarenessIds.size > MAX_AWARENESS_IDS_PER_CONN) {
+          this._dropConn(entry, origin);
+          return;
+        }
       }
       const total = added.length + updated.length + removed.length;
       if (total === 0) return;
@@ -182,9 +188,18 @@ export class DocRegistry {
     if (!entry) return;
     this._cancelGc(docName);
 
-    for (const conn of entry.conns.keys()) {
+    for (const [conn, meta] of entry.conns) {
       try { conn.close(CLOSE.NORMAL, 'doc-removed'); } catch {}
+      // The sockets' own close events will find the doc already gone, so the
+      // owner index must be cleaned here — dead refs used to accumulate in
+      // _owners for the lifetime of the member's token.
+      const ownerSet = this._owners.get(meta.ownerKey);
+      if (ownerSet) {
+        ownerSet.delete(conn);
+        if (ownerSet.size === 0) this._owners.delete(meta.ownerKey);
+      }
     }
+    entry.conns.clear();
     this._teardown(entry);
     this.docs.delete(docName);
     log.debug('docs', `destroyed ${docName}`);
@@ -199,6 +214,12 @@ export class DocRegistry {
 
   count() {
     return this.docs.size;
+  }
+
+  /** Forcefully detach a misbehaving connection (awareness-id flooding). */
+  _dropConn(entry, ws) {
+    this.detach(entry.docName, ws);
+    try { ws.close(CLOSE.POLICY_VIOLATION, 'abuse'); } catch {}
   }
 
   _teardown(entry) {

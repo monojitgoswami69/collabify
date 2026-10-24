@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { Loader2 } from 'lucide-react';
@@ -76,6 +76,9 @@ export function ModernMonacoEditor({
   }, [theme]);
 
   const languageId = toMonacoLanguageId(file.language);
+  // Stable identity: a fresh options object per render made the editor
+  // re-apply options and re-subscribe listeners on every keystroke.
+  const options = useMemo(() => buildEditorOptions(fontSize), [fontSize]);
 
   return (
     <div className="relative w-full h-full">
@@ -99,7 +102,7 @@ export function ModernMonacoEditor({
             />
           </div>
         }
-        options={buildEditorOptions(fontSize)}
+        options={options}
       />
     </div>
   );

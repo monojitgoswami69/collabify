@@ -21,7 +21,7 @@ const MAX_REDIRECTS = 5;
 
 function isAllowed(target: URL): boolean {
   return (
-    (target.protocol === 'https:' || target.protocol === 'http:') &&
+    target.protocol === 'https:' && // no plaintext first hop to GitHub hosts
     target.port === '' && // default ports only — no port probing of GitHub infra
     ALLOWED_HOSTS.has(target.hostname)
   );
@@ -37,11 +37,16 @@ async function fetchValidated(
   headers: Record<string, string>,
 ): Promise<Response> {
   let target: URL = start;
+  // One overall deadline for the whole chain — per-hop timeouts previously
+  // allowed up to ~6x15s of upstream time for a single request.
+  const deadline = Date.now() + FETCH_TIMEOUT_MS;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Upstream fetch timed out');
     const res = await fetch(target.toString(), {
       headers,
       redirect: 'manual',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(remaining),
     });
     // opaqueredirect only happens with mode:'no-cors'; treat 3xx manually:
     if (res.status >= 300 && res.status < 400) {

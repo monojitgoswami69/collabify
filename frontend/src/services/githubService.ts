@@ -156,6 +156,7 @@ export function startOAuthPopup(): Promise<string> {
       window.removeEventListener('message', handler);
       window.removeEventListener('storage', storageHandler);
       if (pollTimer !== undefined) window.clearInterval(pollTimer);
+      window.clearTimeout(hardTimeout);
     };
 
     const handler = (event: MessageEvent) => {
@@ -176,6 +177,15 @@ export function startOAuthPopup(): Promise<string> {
         safeRemoveItem(OAUTH_RESULT_KEY);
       }
     };
+
+    // A popup stuck on a GitHub error page (never closed) used to leave
+    // the sign-in promise pending forever with the button disabled.
+    const hardTimeout = window.setTimeout(() => {
+      if (completed) return;
+      completed = true;
+      cleanup();
+      reject(new Error('Sign-in timed out — please try again.'));
+    }, 5 * 60_000);
 
     pollTimer = window.setInterval(() => {
       if (popup.closed) {
@@ -339,8 +349,21 @@ function encodePath(path: string): string {
   return path
     .split('/')
     .filter((s) => s !== '' && s !== '.' && s !== '..')
-    .map(encodeURIComponent)
+    .map(decodeThenEncode)
     .join('/');
+}
+
+// Pasted GitHub links arrive percent-encoded ("my%20file.md"); encodePath
+// used to re-encode the '%' itself ("my%2520file.md") and 404. Decode first
+// (tolerating already-decoded input), then encode exactly once.
+function decodeThenEncode(segment: string): string {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    /* malformed encoding — use the raw segment */
+  }
+  return encodeURIComponent(decoded);
 }
 
 function buildRawUrl(owner: string, repo: string, branch: string, path: string): string {

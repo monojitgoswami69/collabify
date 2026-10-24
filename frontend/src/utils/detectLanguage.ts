@@ -107,6 +107,11 @@ async function getMagika(): Promise<Magika> {
   return magikaInitPromise;
 }
 
+/** Spin up the Magika WASM model in the background (no classification). */
+export function preloadMagikaModel(): void {
+  getMagika().catch(() => {});
+}
+
 export async function detectLanguageAI(fileName: string, content: string): Promise<string> {
   const extResult = detectLanguage(fileName, content);
   if (!content || content.trim().length < 20) {

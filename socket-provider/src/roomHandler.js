@@ -15,11 +15,15 @@ import {
   CURSOR_COLORS,
   MAX_FILE_CONTENT_BYTES,
   MAX_FILE_ID_LEN,
+  FILE_ID_RE,
   MAX_SHARED_FILES_PER_ROOM,
   MAX_REORDER_LIST_LEN,
   MAX_CHAT_LEN,
   CHAT_WINDOW_MS,
   CHAT_BURST,
+  MAX_ROOMS,
+  MAX_MEMBERS_PER_ROOM,
+  MAX_PENDING_PER_ROOM,
   CLOSE,
 } from './constants.js';
 import {
@@ -68,6 +72,10 @@ export function createRoomHandler({ rooms, docs }) {
               sendJson(ws, { type: OUT.ERROR, message: 'Room already exists' });
               return;
             }
+            if (rooms.size >= MAX_ROOMS) {
+              sendJson(ws, { type: OUT.ERROR, message: 'Server is at capacity — try again shortly' });
+              return;
+            }
             const displayName = sanitizeStr(msg.displayName, 'Host', 40);
             const color = sanitizeColor(msg.color, CURSOR_COLORS[0]);
             room = new Room(roomId);
@@ -95,6 +103,14 @@ export function createRoomHandler({ rooms, docs }) {
               return;
             }
             if (room.hasMember(peerId)) return; // already approved — ignore
+            if (room.members.size >= MAX_MEMBERS_PER_ROOM) {
+              sendJson(ws, { type: OUT.ERROR, message: 'Room is full' });
+              return;
+            }
+            if (room.pending.size >= MAX_PENDING_PER_ROOM) {
+              sendJson(ws, { type: OUT.ERROR, message: 'Too many pending join requests' });
+              return;
+            }
             const displayName = sanitizeStr(msg.displayName, 'Guest', 40);
             const color = sanitizeColor(msg.color, CURSOR_COLORS[1]);
             const alreadyPending = room.pending.has(peerId);
@@ -136,6 +152,7 @@ export function createRoomHandler({ rooms, docs }) {
             const rejected = room.removePending(target);
             if (!rejected) return;
             sendJson(rejected.ws, { type: OUT.REJECTED });
+            try { rejected.ws.close(CLOSE.NORMAL, 'rejected'); } catch {}
             room.broadcastMembersUpdate();
             log.info('room', `rejected ${roomId} ${target}`);
             return;
@@ -146,6 +163,12 @@ export function createRoomHandler({ rooms, docs }) {
             const file = msg.file;
             if (!file || typeof file !== 'object' || typeof file.id !== 'string') return;
             if (file.id.length === 0 || file.id.length > MAX_FILE_ID_LEN) return;
+            // Same grammar the doc channel enforces — otherwise the file is
+            // broadcast as shared but no /doc connection could ever open it.
+            if (!FILE_ID_RE.test(file.id)) {
+              sendJson(ws, { type: OUT.ERROR, message: 'Invalid file id' });
+              return;
+            }
             const content = typeof file.content === 'string' ? file.content : '';
             // Bytes, not chars — file.content may contain multi-byte chars.
             if (Buffer.byteLength(content, 'utf8') > MAX_FILE_CONTENT_BYTES) {
@@ -190,7 +213,7 @@ export function createRoomHandler({ rooms, docs }) {
           case CONTROL.UNSHARE_FILE: {
             if (!room || !room.isHost(peerId)) return;
             const fileId = typeof msg.fileId === 'string' ? msg.fileId : '';
-            if (!fileId || fileId.length > MAX_FILE_ID_LEN) return;
+            if (!fileId || fileId.length > MAX_FILE_ID_LEN || !FILE_ID_RE.test(fileId)) return;
             if (!room.removeSharedFile(fileId)) return;
             room.broadcastJson({ type: OUT.FILE_UNSHARED, fileId });
             docs.destroy(`${roomId}/${fileId}`);
@@ -249,6 +272,7 @@ export function createRoomHandler({ rooms, docs }) {
             if (locked) {
               for (const [pid, p] of room.pending) {
                 sendJson(p.ws, { type: OUT.REJECTED });
+                try { p.ws.close(CLOSE.NORMAL, 'rejected'); } catch {}
               }
               room.pending.clear();
             }
@@ -263,8 +287,9 @@ export function createRoomHandler({ rooms, docs }) {
             return;
         }
       } catch (err) {
-        // A malformed message must never take the process down.
-        log.warn('room', `error handling message from ${peerId} in ${roomId}: ${err.message}`);
+        // A malformed message must never take the process down — but a real
+        // programming error must stay diagnosable, so log the whole error.
+        log.warn('room', `error handling message from ${peerId} in ${roomId}:`, err);
       }
     });
 

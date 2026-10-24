@@ -52,11 +52,13 @@ function AppInner() {
   const filesRef = useRef(files);
   const activeFileIdRef = useRef(activeFileId);
   const shareFileRef = useRef(collab.shareFile);
+  const collabRef = useRef(collab);
   const sharedFileIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     filesRef.current = files;
     activeFileIdRef.current = activeFileId;
     shareFileRef.current = collab.shareFile;
+    collabRef.current = collab;
     sharedFileIdsRef.current = new Set(collab.sharedFiles.map((f) => f.id));
   });
 
@@ -76,7 +78,9 @@ function AppInner() {
     ) {
       const activeId = activeFileIdRef.current;
       const file = activeId ? filesRef.current.find((f) => f.id === activeId) : null;
-      if (file) {
+      // Never auto-share an unloaded repo file — it would seed the room with
+      // an empty document the host's real content never reaches.
+      if (file && file.contentLoaded !== false) {
         autoSharedRef.current = true;
         shareFileRef.current({
           id: file.id,
@@ -86,7 +90,9 @@ function AppInner() {
         });
       }
     }
-  }, [collabIsHost, collabStatus, sharedCount]);
+    // `files` in deps so a deferred auto-share (unloaded file) can fire once
+    // the content loads; the ref guard keeps the per-render cost at a check.
+  }, [collabIsHost, collabStatus, sharedCount, files]);
 
   useEffect(() => {
     if (
@@ -180,8 +186,8 @@ function AppInner() {
 
         const preloadMagika = async () => {
           if (!active) return;
-          const { detectLanguageAI } = await import('@/utils/detectLanguage');
-          detectLanguageAI('', '').catch(() => {});
+          const { preloadMagikaModel } = await import('@/utils/detectLanguage');
+          preloadMagikaModel();
         };
 
         if ('requestIdleCallback' in window) {
@@ -256,6 +262,10 @@ function AppInner() {
       if (activeFileIdRef.current === id) {
         setActiveFileId(next.length > 0 ? next[0]!.id : null);
       }
+      // Unshare from the collab room if this file is shared — otherwise it
+      // lingers as an editable ghost backed by nothing (same invariant as
+      // repo delete).
+      if (sharedFileIdsRef.current.has(id)) collabRef.current.unshareFile(id);
       // Dispose the Monaco text model so we don't leak its buffer +
       // tokenization cache. Lazy import keeps monaco out of the SSR path.
       import('@/lib/monacoModels')

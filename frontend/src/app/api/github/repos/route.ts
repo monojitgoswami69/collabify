@@ -23,6 +23,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch repos' }, { status: res.status });
     }
     const data = await res.json();
+    if (!Array.isArray(data)) {
+      return NextResponse.json(
+        { error: 'Unexpected response from GitHub' },
+        { status: 502 },
+      );
+    }
     return NextResponse.json(data);
   } catch (err) {
     return errorResponse(err);

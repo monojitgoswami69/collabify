@@ -67,6 +67,16 @@ export const MAX_CHAT_LEN = 2000;
 export const ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export const FILE_ID_RE = /^[A-Za-z0-9._-]{1,200}$/;
 
+// Global resource caps — modest ceilings so a scripted client cannot grow
+// server memory without bound. Normal usage never approaches these.
+export const MAX_ROOMS = 5_000;
+export const MAX_MEMBERS_PER_ROOM = 64;
+export const MAX_PENDING_PER_ROOM = 50;
+// Max awareness clientIDs one connection may claim (a legit client has one).
+export const MAX_AWARENESS_IDS_PER_CONN = 16;
+// Per-socket send buffer before the peer is considered a stalled consumer.
+export const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
 // Chat rate limit: at most CHAT_BURST messages within CHAT_WINDOW_MS per peer.
 export const CHAT_WINDOW_MS = 5_000;
 export const CHAT_BURST = 10;

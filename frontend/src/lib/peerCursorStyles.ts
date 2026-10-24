@@ -83,7 +83,7 @@ function ensureSheet(): HTMLStyleElement | null {
 // Awareness `user.color` arrives from remote peers over the doc channel and
 // is interpolated into a stylesheet — only #rrggbb-style hex is ever allowed
 // through; anything else could close a declaration block and inject rules.
-const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const FALLBACK_COLOR = '#888888';
 
 function escapeForCssContent(s: string): string {

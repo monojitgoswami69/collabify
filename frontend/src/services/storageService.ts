@@ -18,7 +18,12 @@ export interface StoredFile extends FileNode {
 }
 
 function isBrowser(): boolean {
-  return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+  try {
+    return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
+  } catch {
+    // Some sandboxed contexts make the localStorage getter itself throw.
+    return false;
+  }
 }
 
 function readJSON<T>(key: string, fallback: T): T {

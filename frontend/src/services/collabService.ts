@@ -302,6 +302,7 @@ export class CollabProvider {
   private _destroyed = false;
   private _pendingMessages: string[] = [];
   private _opened = false;
+  private _socketErrored = false;
 
   readonly docConnections: Map<string, DocConnection> = new Map();
 
@@ -344,17 +345,21 @@ export class CollabProvider {
       // provider may already be installed. Never let that clobber state.
       if (this._destroyed) return;
       const wasConnected = this._status === 'connected' || this._status === 'waiting-approval';
-      if (this._status !== 'rejected' && this._status !== 'error') {
+      if (this._status === 'connecting' && this._socketErrored) {
+        // Never completed the first connection — surface as an error state.
+        this._setStatus('error');
+      } else if (this._status !== 'rejected') {
         this._setStatus('disconnected');
       }
-      if (wasConnected && !this._destroyed) {
+      if (wasConnected) {
         this.events.onConnectionLost();
       }
     };
 
     ws.onerror = () => {
+      if (this._destroyed) return;
+      this._socketErrored = true;
       this.events.onError('Connection to collab server failed.');
-      this._setStatus('error');
     };
   }
 
@@ -504,9 +509,18 @@ export class CollabProvider {
         this.events.onFileUnshared(msg.fileId as string);
         break;
 
-      case 'files-reordered':
-        this.events.onFilesReordered((msg.sharedFiles as SharedFileInfo[]) || []);
+      case 'files-reordered': {
+        const sharedFiles = (msg.sharedFiles as SharedFileInfo[]) || [];
+        // Drop connections for files the host removed from the ordering —
+        // their docs were destroyed server-side; keeping the entry would
+        // return a dead connection if the id is ever re-shared.
+        const kept = new Set(sharedFiles.map((f) => f.id));
+        for (const fileId of Array.from(this.docConnections.keys())) {
+          if (!kept.has(fileId)) this.closeFileConnection(fileId);
+        }
+        this.events.onFilesReordered(sharedFiles);
         break;
+      }
 
       case 'chat-message':
         this.events.onChatMessage({

@@ -1,6 +1,7 @@
 // Utility helpers shared by the room and doc channels.
 
 import { WebSocket } from 'ws';
+import { MAX_BUFFERED_BYTES } from './constants.js';
 
 let counter = 0;
 export function generateId(prefix = 'id') {
@@ -8,8 +9,21 @@ export function generateId(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}`;
 }
 
+/**
+ * A peer that stops reading while staying OPEN (pong is answered by the OS)
+ * would otherwise buffer every broadcast in memory without bound. Past the
+ * cap it is terminated as a stalled consumer.
+ */
+function isStalled(ws) {
+  return ws.bufferedAmount > MAX_BUFFERED_BYTES;
+}
+
 export function sendJson(ws, msg) {
   if (ws && ws.readyState === WebSocket.OPEN) {
+    if (isStalled(ws)) {
+      try { ws.terminate(); } catch {}
+      return;
+    }
     try {
       ws.send(JSON.stringify(msg));
     } catch {
@@ -20,6 +34,10 @@ export function sendJson(ws, msg) {
 
 export function sendBinary(ws, data) {
   if (ws && ws.readyState === WebSocket.OPEN) {
+    if (isStalled(ws)) {
+      try { ws.terminate(); } catch {}
+      return;
+    }
     try {
       ws.send(data, { binary: true });
     } catch {
