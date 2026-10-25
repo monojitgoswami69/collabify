@@ -7,6 +7,7 @@ import type * as Monaco from 'monaco-editor';
 import { FileExplorer } from './FileExplorer';
 import { CollabBar } from './CollabBar';
 import { ChatPanel } from './ChatPanel';
+import { AgentSidebar } from './AgentSidebar';
 import { Sash } from './Sash';
 import { useSashResize } from '@/hooks/useSashResize';
 import { StoredFile } from '@/services/storageService';
@@ -26,10 +27,12 @@ import {
   MessageSquare,
   PanelRightClose,
   Menu,
+  Sparkles,
 } from 'lucide-react';
 import { GitHubDark, GitHubLight } from 'developer-icons';
 import { langIconMap } from '@/lib/langIcons';
 import type { useCollabRoom } from '@/hooks/useCollabRoom';
+import type { AgentController } from '@/hooks/useAgent';
 
 // Dynamic import keeps Monaco out of the SSR/build path entirely.
 const ModernMonacoEditor = dynamic(
@@ -81,6 +84,7 @@ interface EditorViewProps {
   onOpenCollab: () => void;
   onRepoDelete?: (repoKey: string) => void;
   collab: CollabHook;
+  agent: AgentController;
 }
 
 export function EditorView({
@@ -97,6 +101,7 @@ export function EditorView({
   onOpenCollab,
   onRepoDelete,
   collab,
+  agent,
 }: EditorViewProps) {
   const { isDark, toggleTheme } = useTheme();
 
@@ -118,13 +123,16 @@ export function EditorView({
   }, [activeFileId, files, collab.sharedFiles]);
 
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isAgentOpen, setIsAgentOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ ln: 1, col: 1 });
   const [selectionCount, setSelectionCount] = useState(0);
   const [fontSize, setFontSize] = useState(16);
   const chatPanelRef = useRef<HTMLDivElement>(null);
   const chatWidthRef = useRef(0);
-  const chatAnimationRef = useRef<number | null>(null);
+  const agentPanelRef = useRef<HTMLDivElement>(null);
+  const agentWidthRef = useRef(0);
+  const chatAnimationRef = useRef<number | null>(null); // shared slot — panels are exclusive
 
   const editorLayoutFnRef = useRef<
     ((w: number, h: number, postponeRendering?: boolean) => void) | null
@@ -175,12 +183,18 @@ export function EditorView({
     setExternalResizeActive,
   } = useSashResize(handleEditorLayout, handleResizeActiveChange);
 
-  const animateChatPanel = useCallback((open: boolean) => {
+  // Right-side panels (collab chat + AI agent) share one animation slot and
+  // are mutually exclusive: opening one instantly closes the other so the
+  // editor-width math below always has at most one animated panel.
+  const animateRightPanel = useCallback((target: 'chat' | 'agent', open: boolean) => {
     const root = rootRef.current;
-    const chatPanel = chatPanelRef.current;
+    const panelRef = target === 'chat' ? chatPanelRef : agentPanelRef;
+    const widthRef = target === 'chat' ? chatWidthRef : agentWidthRef;
+    const panel = panelRef.current;
     const editorContainer = editorContainerRef.current;
-    if (!root || !chatPanel || !editorContainer) {
-      setIsChatOpen(open);
+    if (!root || !panel || !editorContainer) {
+      if (target === 'chat') setIsChatOpen(open);
+      else setIsAgentOpen(open);
       return;
     }
 
@@ -190,12 +204,23 @@ export function EditorView({
       setExternalResizeActive(false);
     }
 
-    setIsChatOpen(open);
+    const other =
+      target === 'chat'
+        ? { ref: agentPanelRef, widthRef: agentWidthRef, setOpen: setIsAgentOpen }
+        : { ref: chatPanelRef, widthRef: chatWidthRef, setOpen: setIsChatOpen };
+    if (open && other.widthRef.current > 0) {
+      other.widthRef.current = 0;
+      other.ref.current!.style.width = '0px';
+      other.setOpen(false);
+    }
+
+    if (target === 'chat') setIsChatOpen(open);
+    else setIsAgentOpen(open);
     setExternalResizeActive(true);
     handleResizeActiveChange(true);
 
-    const startWidth = chatWidthRef.current;
-    const endWidth = open ? 300 : 0;
+    const startWidth = widthRef.current;
+    const endWidth = open ? (target === 'chat' ? 300 : 380) : 0;
     const duration = 200;
     const startedAt = performance.now();
     const rootWidth = root.clientWidth;
@@ -208,10 +233,11 @@ export function EditorView({
       const progress = Math.min(1, (now - startedAt) / duration);
       const eased = easeOutCubic(progress);
       const width = startWidth + (endWidth - startWidth) * eased;
-      chatWidthRef.current = width;
+      widthRef.current = width;
 
-      chatPanel.style.width = `${width}px`;
-      const editorWidth = rootWidth - sidebarWidthNow - width;
+      panel.style.width = `${width}px`;
+      const otherWidth = target === 'chat' ? agentWidthRef.current : chatWidthRef.current;
+      const editorWidth = rootWidth - sidebarWidthNow - width - otherWidth;
       if (editorWidth > 0 && editorHeight > 0) {
         handleEditorLayout(editorWidth, editorHeight, progress < 1);
       }
@@ -463,6 +489,22 @@ export function EditorView({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => animateRightPanel('agent', !isAgentOpen)}
+            className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
+              isAgentOpen
+                ? isDark
+                  ? 'bg-[#CAA4F7]/20 text-[#CAA4F7]'
+                  : 'bg-[#CAA4F7]/15 text-[#9B6DD7]'
+                : isDark
+                  ? 'text-slate-400 hover:bg-slate-700/50 hover:text-[#CAA4F7]'
+                  : 'text-slate-500 hover:bg-slate-200 hover:text-[#9B6DD7]'
+            }`}
+            title="AI Agent"
+            aria-label="AI Agent"
+          >
+            <Sparkles size={18} />
+          </button>
           {isInRoom && collab.roomId && (
             <CollabBar
               roomId={collab.roomId}
@@ -480,7 +522,7 @@ export function EditorView({
           )}
           {isMember && (
             <button
-              onClick={() => animateChatPanel(!isChatOpen)}
+              onClick={() => animateRightPanel('chat', !isChatOpen)}
               className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
                 isChatOpen
                   ? isDark
@@ -690,7 +732,7 @@ export function EditorView({
           )}
         </div>
 
-        {/* Chat panel — width animated frame-by-frame by animateChatPanel (rAF),
+        {/* Chat panel — width animated frame-by-frame by animateRightPanel (rAF),
             which also pushes exact dimensions into editor.layout(). */}
         {isMember && (
           <div
@@ -705,10 +747,22 @@ export function EditorView({
               messages={collab.chatMessages}
               selfPeerId={collab.peerId}
               onSendMessage={collab.sendChatMessage}
-              onClose={() => animateChatPanel(false)}
+              onClose={() => animateRightPanel('chat', false)}
             />
           </div>
         )}
+
+        {/* AI agent panel — always mounted so the conversation survives
+            closing; width 0 keeps it hidden. */}
+        <div
+          ref={agentPanelRef}
+          className="overflow-hidden shrink-0"
+          style={{
+            width: `${agentWidthRef.current}px`,
+          }}
+        >
+          <AgentSidebar agent={agent} onClose={() => animateRightPanel('agent', false)} />
+        </div>
       </div>
 
       <div

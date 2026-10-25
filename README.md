@@ -92,6 +92,7 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 | Yjs + y-monaco | CRDT document binding |
 | y-protocols | Sync and awareness wire protocols |
 | Magika | AI-based content language detection |
+| @google/genai (server-side only) | Gemini API client for the built-in AI agent |
 
 ### Collaboration Server (`socket-provider/`)
 
@@ -125,6 +126,13 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 ### Chat System
 - Real-time room-wide chat over the control channel
 - Server-stamped messages with peer identity and timestamps, rate-limited per peer
+
+### AI Agent (bring your own key)
+- Built-in workspace-aware agent (Sparkles button in the header) powered by the Gemini API with **your own key** — stored only in your browser, sent per-request to a stateless proxy route; no server-side credentials exist
+- Tools: list/read workspace files (500-line sliding-window reads), **patch-based editing** (ordered unique-match find/replace — never a full-file rewrite), create/delete files, Google-Search-grounded web search, and Python code execution in Gemini's sandbox
+- Mutating tools go through an approval gate ("Ask first" by default, "Auto-apply" optional); every tool call and result is visible as a card in the thread
+- Works alongside collab rooms: patches to shared files are applied to the live Yjs document too, so room members see agent edits in real time
+- Models: `gemini-2.5-flash-lite` (default), `gemini-2.5-flash`, `gemini-2.5-pro`
 
 ### GitHub Integration
 - OAuth-based GitHub authentication (with CSRF `state` validation) via Next.js route handlers

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react
 import { EditorView } from './EditorView';
 import { ThemeProvider } from '@/hooks/useTheme';
 import { useCollabRoom } from '@/hooks/useCollabRoom';
+import { useAgent } from '@/hooks/useAgent';
 import { GitHubImportModal } from './GitHubImportModal';
 import { CollabRoomModal } from './CollabRoomModal';
 import {
@@ -11,8 +12,10 @@ import {
   saveFiles,
   getActiveFileId,
   setActiveFileId as saveActiveFileId,
+  newFileId,
   StoredFile,
 } from '@/services/storageService';
+import type { AgentWorkspaceContext } from '@/lib/agentTools';
 import { detectLanguage, detectLanguageAI } from '@/utils/detectLanguage';
 import {
   fetchRawContent,
@@ -26,14 +29,6 @@ import {
 // localStorage during hydration commit and avoid a "no snippets" flash on refresh.
 const useIsomorphicLayoutEffect =
   typeof window !== 'undefined' ? useLayoutEffect : useEffect;
-
-// Cryptographically unique file ids — Date.now() collided when two files were
-// created in the same millisecond, aliasing them onto one Monaco model.
-function newFileId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 function AppInner() {
   const [files, setFiles] = useState<StoredFile[]>([]);
@@ -54,13 +49,42 @@ function AppInner() {
   const shareFileRef = useRef(collab.shareFile);
   const collabRef = useRef(collab);
   const sharedFileIdsRef = useRef<Set<string>>(new Set());
+  const handleCodeChangeRef = useRef<((id: string, code: string) => void) | null>(null);
+  const handleFileDeleteRef = useRef<((id: string) => void) | null>(null);
   useEffect(() => {
     filesRef.current = files;
     activeFileIdRef.current = activeFileId;
     shareFileRef.current = collab.shareFile;
     collabRef.current = collab;
     sharedFileIdsRef.current = new Set(collab.sharedFiles.map((f) => f.id));
+    agentWorkspaceRef.current = {
+      files,
+      activeFileId,
+      provider: collab.provider,
+      collabConnected: collab.status === 'connected',
+      sharedFileIds: sharedFileIdsRef.current,
+      applyContent: (fileId, content) => handleCodeChangeRef.current?.(fileId, content),
+      addFile: (file) => setFiles((prev) => [...prev, file]),
+      removeFile: (fileId) => handleFileDeleteRef.current?.(fileId),
+      setActive: (fileId) => setActiveFileId(fileId),
+    };
   });
+
+  // ── AI agent ─────────────────────────────────────────────────────────
+  // The agent's tools operate on live workspace state, read fresh at call
+  // time through this ref (latest-ref pattern, like the ones above).
+  const agentWorkspaceRef = useRef<AgentWorkspaceContext>({
+    files: [],
+    activeFileId: null,
+    provider: null,
+    collabConnected: false,
+    sharedFileIds: new Set<string>(),
+    applyContent: () => {},
+    addFile: () => {},
+    removeFile: () => {},
+    setActive: () => {},
+  });
+  const agent = useAgent({ getWorkspace: () => agentWorkspaceRef.current! });
 
   const { isHost: collabIsHost, status: collabStatus } = collab;
   const sharedCount = collab.sharedFiles.length;
@@ -294,6 +318,9 @@ function AppInner() {
     );
   }, []);
 
+  handleCodeChangeRef.current = handleCodeChange;
+  handleFileDeleteRef.current = handleFileDelete;
+
   const handleLanguageChange = useCallback((id: string, language: string) => {
     setFiles((prev) =>
       prev.map((f) => (f.id === id ? { ...f, language, lastModified: Date.now() } : f)),
@@ -468,6 +495,7 @@ function AppInner() {
         onOpenCollab={() => setShowCollabModal(true)}
         onRepoDelete={handleRepoDelete}
         collab={collab}
+        agent={agent}
       />
       <GitHubImportModal
         isOpen={showGitHubModal}

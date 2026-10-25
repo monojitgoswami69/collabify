@@ -17,6 +17,14 @@ export interface StoredFile extends FileNode {
   contentLoaded?: boolean;
 }
 
+// Cryptographically unique file ids — Date.now() collided when two files were
+// created in the same millisecond, aliasing them onto one Monaco model.
+export function newFileId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function isBrowser(): boolean {
   try {
     return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
