@@ -5,6 +5,8 @@ import { EditorView } from './EditorView';
 import { ThemeProvider } from '@/hooks/useTheme';
 import { useCollabRoom } from '@/hooks/useCollabRoom';
 import { useAgent } from '@/hooks/useAgent';
+import { useAccount } from '@/hooks/useAccount';
+import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 import { GitHubImportModal } from './GitHubImportModal';
 import { CollabRoomModal } from './CollabRoomModal';
 import {
@@ -86,6 +88,22 @@ function AppInner() {
   });
   const agent = useAgent({ getWorkspace: () => agentWorkspaceRef.current! });
 
+  // The exact array hydrated from storage — a save of this unchanged value
+  // would be a no-op at best and, when the stored JSON was corrupt (fallback
+  // []), would overwrite whatever might still be recoverable. Skip it.
+  const hydratedFilesRef = useRef<StoredFile[] | null>(null);
+
+  // ── Account + workspace sync ─────────────────────────────────────────
+  const account = useAccount();
+  const sync = useWorkspaceSync({
+    account,
+    files,
+    filesRef,
+    hydratedFilesRef,
+    setFiles,
+    isInitialized,
+  });
+
   const { isHost: collabIsHost, status: collabStatus } = collab;
   const sharedCount = collab.sharedFiles.length;
   useEffect(() => {
@@ -155,11 +173,6 @@ function AppInner() {
     }
     setIsInitialized(true);
   }, []);
-
-  // The exact array hydrated from storage — a save of this unchanged value
-  // would be a no-op at best and, when the stored JSON was corrupt (fallback
-  // []), would overwrite whatever might still be recoverable. Skip it.
-  const hydratedFilesRef = useRef<StoredFile[] | null>(null);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -295,6 +308,7 @@ function AppInner() {
       // lingers as an editable ghost backed by nothing (same invariant as
       // repo delete).
       if (sharedFileIdsRef.current.has(id)) collabRef.current.unshareFile(id);
+      sync.markDeleted([id]);
       // Dispose the Monaco text model so we don't leak its buffer +
       // tokenization cache. Lazy import keeps monaco out of the SSR path.
       import('@/lib/monacoModels')
@@ -458,6 +472,7 @@ function AppInner() {
       for (const f of removed) {
         if (sharedFileIdsRef.current.has(f.id)) collab.unshareFile(f.id);
       }
+      sync.markDeleted(removedIds);
       import('@/lib/monacoModels')
         .then(({ disposeModelsForFiles }) => disposeModelsForFiles(removedIds))
         .catch(() => {});
@@ -496,6 +511,8 @@ function AppInner() {
         onRepoDelete={handleRepoDelete}
         collab={collab}
         agent={agent}
+        account={account}
+        sync={sync}
       />
       <GitHubImportModal
         isOpen={showGitHubModal}

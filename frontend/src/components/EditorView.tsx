@@ -33,6 +33,9 @@ import { GitHubDark, GitHubLight } from 'developer-icons';
 import { langIconMap } from '@/lib/langIcons';
 import type { useCollabRoom } from '@/hooks/useCollabRoom';
 import type { AgentController } from '@/hooks/useAgent';
+import type { Account } from '@/hooks/useAccount';
+import type { WorkspaceSync } from '@/hooks/useWorkspaceSync';
+import { AccountMenu } from './AccountMenu';
 
 // Dynamic import keeps Monaco out of the SSR/build path entirely.
 const ModernMonacoEditor = dynamic(
@@ -85,6 +88,8 @@ interface EditorViewProps {
   onRepoDelete?: (repoKey: string) => void;
   collab: CollabHook;
   agent: AgentController;
+  account: Account;
+  sync: WorkspaceSync;
 }
 
 export function EditorView({
@@ -102,6 +107,8 @@ export function EditorView({
   onRepoDelete,
   collab,
   agent,
+  account,
+  sync,
 }: EditorViewProps) {
   const { isDark, toggleTheme } = useTheme();
 
@@ -489,6 +496,12 @@ export function EditorView({
         </div>
 
         <div className="flex items-center gap-2">
+          <AccountMenu
+            account={account}
+            onSyncNow={() => void sync.pullAndMerge()}
+            syncing={sync.isSyncing}
+            lastSyncError={sync.lastSyncError}
+          />
           <button
             onClick={() => animateRightPanel('agent', !isAgentOpen)}
             className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
