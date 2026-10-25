@@ -117,6 +117,39 @@ export class DocRegistry {
     return entry;
   }
 
+  /** Full Yjs state of a doc (for durable-room persistence). */
+  snapshot(docName) {
+    const entry = this.docs.get(docName);
+    return entry ? Y.encodeStateAsUpdate(entry.doc) : null;
+  }
+
+  /** Snapshot every doc in the registry: Map<docName, state>. */
+  snapshotAll() {
+    const out = new Map();
+    for (const [name, entry] of this.docs) {
+      out.set(name, Y.encodeStateAsUpdate(entry.doc));
+    }
+    return out;
+  }
+
+  /** Snapshot every doc under a prefix: [{docName, fileId, state}]. */
+  snapshotByPrefix(prefix) {
+    const out = [];
+    for (const [name, entry] of this.docs) {
+      if (name.startsWith(prefix)) {
+        out.push({ docName: name, fileId: name.slice(prefix.length), state: Y.encodeStateAsUpdate(entry.doc) });
+      }
+    }
+    return out;
+  }
+
+  /** Restore persisted Yjs state into a doc (durable-room revival). */
+  restore(docName, state) {
+    const entry = this.getOrCreate(docName);
+    Y.applyUpdate(entry.doc, state);
+    return entry;
+  }
+
   /** Initialize the Y.Text 'monaco' with seed content, if currently empty. */
   seed(docName, content) {
     const entry = this.getOrCreate(docName);

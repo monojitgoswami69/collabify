@@ -21,7 +21,9 @@ import https from 'node:https';
 import fs from 'node:fs';
 import { WebSocketServer } from 'ws';
 
+import path from 'node:path';
 import { DocRegistry } from './docs.js';
+import { createStore } from './store.js';
 import { createRoomHandler } from './roomHandler.js';
 import { createDocHandler } from './docHandler.js';
 import {
@@ -30,6 +32,8 @@ import {
   MAX_WS_PAYLOAD_BYTES,
   ROOM_ID_RE,
   FILE_ID_RE,
+  ROOM_TTL_HOURS,
+  SNAPSHOT_INTERVAL_MS,
 } from './constants.js';
 import { log } from './log.js';
 
@@ -181,7 +185,15 @@ const wss = new WebSocketServer({
   maxPayload: MAX_WS_PAYLOAD_BYTES,
 });
 
-const handleRoom = createRoomHandler({ rooms, docs });
+// ── Durable rooms ───────────────────────────────────────────────────────
+// Empty rooms are snapshotted to SQLite and revived on CREATE until the TTL
+// purge. ROOM_TTL_HOURS=0 disables persistence entirely.
+const store =
+  ROOM_TTL_HOURS > 0
+    ? createStore(process.env.COLLABIFY_DB_PATH || path.join(process.cwd(), 'data', 'collabify.db'))
+    : null;
+
+const handleRoom = createRoomHandler({ rooms, docs, store });
 const handleDoc = createDocHandler({ rooms, docs });
 
 // A doc whose file is still shared in a live room must survive GC — the
@@ -236,6 +248,28 @@ server.on('upgrade', (req, socket, head) => {
   socket.destroy();
 });
 
+// ── Live-doc snapshots (crash resilience) ───────────────────────────────
+let snapshotTimer = null;
+if (store) {
+  snapshotTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [roomId, room] of rooms) {
+      if (room.members.size === 0) continue;
+      // Metadata + docs together, so a crash revives rooms wholesale.
+      store.saveRoom(roomId, { sharedFiles: room.getSharedFilesList(), locked: room.locked }, now);
+      for (const fileId of room.sharedFiles.keys()) {
+        const state = docs.snapshot(`${roomId}/${fileId}`);
+        if (state) store.saveDoc(roomId, fileId, state, now);
+      }
+    }
+  }, SNAPSHOT_INTERVAL_MS);
+  // TTL purge for dormant rooms.
+  setInterval(() => {
+    const removed = store.purge(ROOM_TTL_HOURS * 3_600_000);
+    if (removed > 0) log.info('store', `purged ${removed} dormant room(s)`);
+  }, 60 * 60_000).unref();
+}
+
 // ── Heartbeat ───────────────────────────────────────────────────────────
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
@@ -267,6 +301,21 @@ server.listen(PORT, HOST, () => {
 function shutdown(signal) {
   log.info('boot', `${signal} received, shutting down`);
   clearInterval(heartbeat);
+  if (snapshotTimer) clearInterval(snapshotTimer);
+  // Persist every live doc so a restart revives rooms with full content.
+  if (store) {
+    try {
+      const now = Date.now();
+      for (const [docName, state] of docs.snapshotAll()) {
+        const slash = docName.indexOf('/');
+        if (slash === -1) continue;
+        store.saveDoc(docName.slice(0, slash), docName.slice(slash + 1), state, now);
+      }
+      store.close();
+    } catch (err) {
+      log.error('boot', `shutdown snapshot failed: ${err.message}`);
+    }
+  }
   for (const ws of wss.clients) {
     try { ws.close(CLOSE.GOING_AWAY, 'server-shutdown'); } catch {}
   }

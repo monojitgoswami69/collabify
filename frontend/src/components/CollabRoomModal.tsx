@@ -39,6 +39,7 @@ export const CollabRoomModal = memo(function CollabRoomModal({
   const { isDark } = useTheme();
   const [displayName, setDisplayName] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [lastRoom, setLastRoom] = useState<string | null>(null);
   // Guard against the persist effect overwriting the stored name with ''
   // before the mount read restores it.
   const hydratedRef = useRef(false);
@@ -165,6 +166,15 @@ export const CollabRoomModal = memo(function CollabRoomModal({
 
               <div>
                 <label className={`block text-xs font-bold mb-1.5 ${textM}`}>ROOM ID</label>
+                {lastRoom && !roomId && (
+                  <button
+                    type="button"
+                    onClick={() => setRoomId(lastRoom)}
+                    className={`mb-2 text-[10px] font-semibold text-[#CAA4F7] hover:underline`}
+                  >
+                    Rejoin your last room: {lastRoom}
+                  </button>
+                )}
                 <input
                   type="text"
                   value={roomId}

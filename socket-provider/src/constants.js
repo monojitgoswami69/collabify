@@ -76,6 +76,11 @@ export const FILE_ID_RE = /^[A-Za-z0-9._-]{1,200}$/;
 export const MAX_ROOMS = Number(process.env.MAX_ROOMS ?? 5_000);
 export const MAX_MEMBERS_PER_ROOM = Number(process.env.MAX_MEMBERS_PER_ROOM ?? 64);
 export const MAX_PENDING_PER_ROOM = Number(process.env.MAX_PENDING_PER_ROOM ?? 50);
+// Durable rooms: snapshots of empty rooms are kept this long (hours) and a
+// CREATE with the same id revives them. 0 disables revival/persistence.
+export const ROOM_TTL_HOURS = Number(process.env.ROOM_TTL_HOURS ?? 24);
+// How often live docs are snapshotted (crash resilience).
+export const SNAPSHOT_INTERVAL_MS = Number(process.env.SNAPSHOT_INTERVAL_MS ?? 60_000);
 // Max awareness clientIDs one connection may claim (a legit client has one).
 export const MAX_AWARENESS_IDS_PER_CONN = 16;
 // Per-socket send buffer before the peer is considered a stalled consumer.

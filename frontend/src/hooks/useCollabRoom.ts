@@ -277,6 +277,12 @@ export function useCollabRoom() {
       }));
       provider.connect();
       provider.createRoom();
+      // Remember for the reconnect hint after a refresh.
+      try {
+        sessionStorage.setItem('collabify-last-room', roomId);
+      } catch {
+        /* ignore */
+      }
     },
     [buildEvents],
   );

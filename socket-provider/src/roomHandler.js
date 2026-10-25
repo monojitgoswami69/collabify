@@ -25,6 +25,7 @@ import {
   MAX_MEMBERS_PER_ROOM,
   MAX_PENDING_PER_ROOM,
   CLOSE,
+  ROOM_TTL_HOURS,
 } from './constants.js';
 import {
   generateId,
@@ -39,8 +40,9 @@ import { log } from './log.js';
  * @param {object} deps
  * @param {Map<string, Room>} deps.rooms
  * @param {import('./docs.js').DocRegistry} deps.docs
+ * @param {ReturnType<typeof import('./store.js').createStore>} [deps.store]
  */
-export function createRoomHandler({ rooms, docs }) {
+export function createRoomHandler({ rooms, docs, store }) {
   /**
    * @param {import('ws').WebSocket} ws
    * @param {string} roomId
@@ -76,10 +78,33 @@ export function createRoomHandler({ rooms, docs }) {
               sendJson(ws, { type: OUT.ERROR, message: 'Server is at capacity — try again shortly' });
               return;
             }
+            // Revive a dormant persisted room: the room id is the capability,
+            // and the sharer becomes host again with all documents restored.
+            let revivedMeta = null;
+            if (store && ROOM_TTL_HOURS > 0) {
+              const saved = store.getRoom(roomId);
+              if (saved) {
+                try {
+                  revivedMeta = JSON.parse(saved.meta);
+                } catch {
+                  revivedMeta = null;
+                }
+              }
+            }
             const displayName = sanitizeStr(msg.displayName, 'Host', 40);
             const color = sanitizeColor(msg.color, CURSOR_COLORS[0]);
             room = new Room(roomId);
             room.addHost(peerId, ws, displayName, color);
+            if (revivedMeta) {
+              for (const f of revivedMeta.sharedFiles || []) {
+                room.addSharedFile({ id: f.id, name: f.name, language: f.language });
+              }
+              room.locked = !!revivedMeta.locked;
+              for (const row of store.listDocs(roomId)) {
+                docs.restore(`${roomId}/${row.file_id}`, row.state);
+              }
+              log.info('room', `revived ${roomId} (${(revivedMeta.sharedFiles || []).length} file(s))`);
+            }
             rooms.set(roomId, room);
             joined = true;
             sendJson(ws, {
@@ -221,6 +246,7 @@ export function createRoomHandler({ rooms, docs }) {
             if (!room.removeSharedFile(fileId)) return;
             room.broadcastJson({ type: OUT.FILE_UNSHARED, fileId });
             docs.destroy(`${roomId}/${fileId}`);
+            if (store) store.deleteDoc(roomId, fileId);
             log.debug('room', `unshared ${roomId}/${fileId}`);
             return;
           }
@@ -328,15 +354,27 @@ export function createRoomHandler({ rooms, docs }) {
           room.broadcastMembersUpdate();
           log.info('room', `host promoted ${roomId} -> ${newHostId}`);
         } else {
-          // Empty room — reject pending, destroy docs, drop room
+          // Empty room — reject pending, then either persist (durable room,
+          // revivable by CREATE until the TTL purge) or tear down.
           for (const [, p] of room.pending) {
             sendJson(p.ws, { type: OUT.ROOM_CLOSED });
             try { p.ws.close(CLOSE.GOING_AWAY, 'room-closed'); } catch {}
           }
           room.pending.clear();
+          if (store && ROOM_TTL_HOURS > 0) {
+            const now = Date.now();
+            for (const { fileId, state } of docs.snapshotByPrefix(`${room.roomId}/`)) {
+              store.saveDoc(room.roomId, fileId, state, now);
+            }
+            store.saveRoom(
+              room.roomId,
+              { sharedFiles: room.getSharedFilesList(), locked: room.locked },
+              now,
+            );
+            log.info('room', `dormant ${room.roomId} (revivable for ${ROOM_TTL_HOURS}h)`);
+          }
           docs.destroyByPrefix(`${room.roomId}/`);
           rooms.delete(room.roomId);
-          log.info('room', `closed ${room.roomId}`);
         }
       } else {
         room.broadcastMembersUpdate();
