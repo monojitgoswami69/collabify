@@ -5,6 +5,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { useMountTransition } from '@/hooks/useMountTransition';
 import {
   Users,
+  Eye,
   Wifi,
   WifiOff,
   Loader2,
@@ -36,6 +37,8 @@ interface Props {
   onLeave: () => void;
   onKick: (peerId: string) => void;
   onLockRoom: (locked: boolean) => void;
+  followingPeerId: string | null;
+  onToggleFollow: (peerId: string | null) => void;
 }
 
 export const CollabBar = memo(function CollabBar({
@@ -50,7 +53,10 @@ export const CollabBar = memo(function CollabBar({
   onLeave,
   onKick,
   onLockRoom,
-}: Props) {
+  followingPeerId,
+  onToggleFollow,
+  sharedFiles,
+}: Props & { sharedFiles: { id: string; name: string }[] }) {
   const { isDark } = useTheme();
   const [copied, setCopied] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
@@ -61,6 +67,7 @@ export const CollabBar = memo(function CollabBar({
   const infoRef = useRef<HTMLDivElement>(null);
   const infoBtnRef = useRef<HTMLButtonElement>(null);
 
+  const sharedNames = new Map(sharedFiles.map((f) => [f.id, f.name]));
   const { hasRendered: hasRenderedMembers, isActive: isActiveMembers } = useMountTransition(showMembers, 250);
   const { hasRendered: hasRenderedInfo, isActive: isActiveInfo } = useMountTransition(showInfo, 250);
 
@@ -199,6 +206,11 @@ export const CollabBar = memo(function CollabBar({
                       {m.displayName}
                       {m.isHost && <Crown size={10} className="inline ml-1 text-amber-500" />}
                     </div>
+                    {m.currentFileId && (
+                      <div className={`text-[9px] truncate ${textM}`}>
+                        viewing {sharedNames.get(m.currentFileId) || 'a file'}
+                      </div>
+                    )}
                   </div>
                   {isHost && !m.isHost && (
                     <button
@@ -209,6 +221,17 @@ export const CollabBar = memo(function CollabBar({
                       <UserMinus size={12} />
                     </button>
                   )}
+                  <button
+                    onClick={() => onToggleFollow(followingPeerId === m.peerId ? null : m.peerId)}
+                    className={`p-1 rounded-md transition-all ${
+                      followingPeerId === m.peerId
+                        ? 'bg-[#CAA4F7]/25 text-[#CAA4F7]'
+                        : isDark ? 'text-slate-500 hover:bg-slate-700/50' : 'text-slate-400 hover:bg-slate-100'
+                    }`}
+                    title={followingPeerId === m.peerId ? `Stop following ${m.displayName}` : `Follow ${m.displayName}`}
+                  >
+                    <Eye size={11} />
+                  </button>
                   <Wifi size={10} className="text-green-500 shrink-0" />
                 </div>
               ))}

@@ -14,6 +14,7 @@ export const CONTROL = {
   UNSHARE_FILE: 'unshare-file',
   REORDER_FILES: 'reorder-files',
   CHAT_MESSAGE: 'chat-message',
+  PRESENCE: 'presence',
   LEAVE: 'leave',
   KICK: 'kick',
   LOCK_ROOM: 'lock-room',

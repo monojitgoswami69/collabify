@@ -23,6 +23,8 @@ export interface CollabMember {
   displayName: string;
   color: string;
   isHost: boolean;
+  /** File the member is currently viewing (per-file presence). */
+  currentFileId?: string;
 }
 
 export interface PendingRequest {
@@ -418,6 +420,11 @@ export class CollabProvider {
 
   lockRoom(locked: boolean) {
     this._sendJson({ type: 'lock-room', locked });
+  }
+
+  /** Tell the room which file this peer is viewing (per-file presence). */
+  sendPresence(fileId: string | null) {
+    this._sendJson({ type: 'presence', fileId });
   }
 
   openFileConnection(fileId: string): DocConnection {

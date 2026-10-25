@@ -418,6 +418,31 @@ export function EditorView({
     }
   }, [isInRoom]);
 
+  // Per-file presence: announce the file we're viewing (server relays in
+  // members-update; cursor detail rides per-doc awareness).
+  const connected = collab.status === 'connected';
+  useEffect(() => {
+    if (connected) collab.provider?.sendPresence(activeFileId);
+  }, [connected, activeFileId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Follow-me: when following a peer, open the file they switch to.
+  const { followingPeerId, setFollowingPeer } = collab;
+  const followedPeer = useMemo(
+    () => collab.members.find((m) => m.peerId === followingPeerId) ?? null,
+    [collab.members, followingPeerId],
+  );
+  useEffect(() => {
+    if (!followingPeerId) return;
+    if (!followedPeer) {
+      setFollowingPeer(null); // they left
+      return;
+    }
+    const target = followedPeer.currentFileId;
+    if (target && target !== activeFileId && collab.sharedFiles.some((f) => f.id === target)) {
+      onFileSelect(target);
+    }
+  }, [followingPeerId, followedPeer?.currentFileId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sharedFileIds = useMemo(
     () => new Set(collab.sharedFiles.map((f) => f.id)),
     [collab.sharedFiles],
@@ -531,6 +556,9 @@ export function EditorView({
               onLeave={collab.leaveRoom}
               onKick={collab.kickMember}
               onLockRoom={collab.lockRoom}
+              followingPeerId={followingPeerId}
+              onToggleFollow={setFollowingPeer}
+              sharedFiles={collab.sharedFiles}
             />
           )}
           {isMember && (
@@ -642,6 +670,7 @@ export function EditorView({
                 onRepoDelete={onRepoDelete}
                 isInRoom={isInRoom}
                 isHost={collab.isHost}
+                members={collab.members}
                 sharedFiles={collab.sharedFiles}
                 onAddToCollab={handleAddToCollab}
                 onRemoveFromCollab={handleRemoveFromCollab}

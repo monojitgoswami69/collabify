@@ -312,6 +312,19 @@ export function createRoomHandler({ rooms, docs, store }) {
             return;
           }
 
+          case CONTROL.PRESENCE: {
+            // Which file this member is looking at — feeds per-file presence
+            // and follow-me. Broadcast only when the FILE changes, not on
+            // every cursor move (per-doc awareness carries cursor detail).
+            if (!room || !room.hasMember(peerId)) return;
+            const fileId = typeof msg.fileId === 'string' && msg.fileId.length <= 200 ? msg.fileId : '';
+            const member = room.members.get(peerId);
+            if (!member || member.currentFileId === fileId) return;
+            member.currentFileId = fileId || undefined;
+            room.broadcastMembersUpdate();
+            return;
+          }
+
           case CONTROL.LEAVE:
             handleDisconnect();
             return;

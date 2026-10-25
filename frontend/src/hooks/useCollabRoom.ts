@@ -24,6 +24,8 @@ export interface CollabState {
   roomId: string | null;
   isHost: boolean;
   isLocked: boolean;
+  /** Peer whose file changes we are following (null = not following). */
+  followingPeerId: string | null;
   displayName: string;
   color: string;
   members: CollabMember[];
@@ -41,6 +43,7 @@ export function useCollabRoom() {
     roomId: null,
     isHost: false,
     isLocked: false,
+    followingPeerId: null,
     displayName: '',
     color: getRandomColor(),
     members: [],
@@ -221,6 +224,7 @@ export function useCollabRoom() {
           roomId: null,
           isHost: false,
           isLocked: false,
+          followingPeerId: null,
           members: [],
           pending: [],
           sharedFiles: [],
@@ -370,6 +374,10 @@ export function useCollabRoom() {
     providerRef.current?.lockRoom(locked);
   }, []);
 
+  const setFollowingPeer = useCallback((peerId: string | null) => {
+    setState((prev) => ({ ...prev, followingPeerId: peerId }));
+  }, []);
+
   useEffect(() => {
     return () => {
       for (const t of toastTimersRef.current) clearTimeout(t);
@@ -380,6 +388,7 @@ export function useCollabRoom() {
 
   return {
     ...state,
+    setFollowingPeer,
     joinError,
     clearJoinError: useCallback(() => setJoinError(null), []),
     createRoom,

@@ -111,6 +111,7 @@ export class Room {
       displayName: m.displayName,
       color: m.color,
       isHost: peerId === this.hostId,
+      ...(m.currentFileId ? { currentFileId: m.currentFileId } : {}),
     }));
   }
 

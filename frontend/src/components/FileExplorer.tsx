@@ -361,6 +361,7 @@ interface FileExplorerProps {
   onRepoDelete?: (repoKey: string) => void;
   isInRoom: boolean;
   isHost: boolean;
+  members: { peerId: string; displayName: string; color: string; currentFileId?: string }[];
   sharedFiles: SharedFileInfo[];
   onAddToCollab?: (fileId: string) => void;
   onRemoveFromCollab?: (fileId: string) => void;
@@ -377,6 +378,7 @@ export const FileExplorer = memo(function FileExplorer({
   onRepoDelete,
   isInRoom,
   isHost,
+  members,
   sharedFiles,
   onAddToCollab,
   onRemoveFromCollab,
@@ -444,6 +446,17 @@ export const FileExplorer = memo(function FileExplorer({
   });
 
   const collabFiles = useMemo(() => sharedFiles, [sharedFiles]);
+  // Per-file presence: peers currently viewing each shared file.
+  const viewersByFile = useMemo(() => {
+    const m = new Map<string, { peerId: string; displayName: string; color: string }[]>();
+    for (const member of members) {
+      if (!member.currentFileId) continue;
+      const list = m.get(member.currentFileId) ?? [];
+      list.push({ peerId: member.peerId, displayName: member.displayName, color: member.color });
+      m.set(member.currentFileId, list);
+    }
+    return m;
+  }, [members]);
 
   return (
     <div className="space-y-1 text-sm">
@@ -568,6 +581,16 @@ export const FileExplorer = memo(function FileExplorer({
                 >
                   <LangIcon language={cf.language} size={13} />
                   <span className="text-[13px] truncate">{cf.name}</span>
+                  {(viewersByFile.get(cf.id) ?? []).slice(0, 3).map((v) => (
+                    <div
+                      key={v.peerId}
+                      className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white shrink-0 border border-transparent"
+                      style={{ backgroundColor: v.color }}
+                      title={`${v.displayName} is viewing this file`}
+                    >
+                      {v.displayName.charAt(0).toUpperCase()}
+                    </div>
+                  ))}
                   {isHost && (
                     <button
                       onClick={(e) => {
