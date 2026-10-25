@@ -91,5 +91,5 @@ export const CLOSE = {
   NORMAL: 1000,           // peaceful close (also: doc removed, client leave)
   GOING_AWAY: 1001,       // server shutdown / room closed
   POLICY_VIOLATION: 1008, // missing/invalid doc token, abuse
-  FILE_UNSHARED: 4001,    // host unshared the file (or never shared it)
+  FILE_UNSHARED: 4001,    // doc attach rejected: file not shared (unshare itself closes with 1000 'doc-removed')
 };

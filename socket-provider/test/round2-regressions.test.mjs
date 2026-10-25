@@ -40,19 +40,23 @@ test('reject closes the rejected peer socket (no indefinite re-join spam)', asyn
   host.close();
 });
 
-test('reorder dropping a file closes its doc connections and frees the doc', async () => {
+test('reorder is ordering-only: omitted files are kept, docs untouched', async () => {
   const { host, token } = await makeHostRoom('R2C');
   send(host, { type: 'share-file', file: { id: 'f1', name: 'a', language: '', content: 'one' } });
   send(host, { type: 'share-file', file: { id: 'f2', name: 'b', language: '', content: 'two' } });
   await findMsg(host, 'file-shared');
   const doc1 = await connect(`/doc/R2C/f1?token=${encodeURIComponent(token)}`);
   await new Promise((r) => setTimeout(r, 250));
-  send(host, { type: 'reorder-files', files: [{ id: 'f2' }] }); // f1 dropped
-  assert.ok(await findMsg(doc1, undefined, 300) || true); // drain silently
+  // A list omitting f1 (e.g. racing f1's share echo) must NOT destroy it —
+  // removal is unshare-file's job.
+  send(host, { type: 'reorder-files', files: [{ id: 'f2' }] });
+  const reordered = await findMsg(host, 'files-reordered');
+  assert.ok(reordered, 'files-reordered broadcast');
+  assert.equal(reordered.sharedFiles.length, 2, 'omitted file kept in the room');
   await new Promise((r) => setTimeout(r, 400));
-  assert.equal(doc1.closeCode, 1000, 'dropped file doc socket closed with NORMAL');
+  assert.equal(doc1.closeCode, undefined, 'f1 doc socket NOT closed by reorder');
   const health = await (await fetch(`http://127.0.0.1:${SERVER_PORT}/health`)).json();
-  assert.equal(health.docs, 1, 'dropped doc removed from registry');
+  assert.equal(health.docs, 2, 'both docs still in the registry');
   host.close(); doc1.terminate();
 });
 

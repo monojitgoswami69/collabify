@@ -180,6 +180,7 @@ export class DocConnection {
     };
 
     ws.onmessage = (event) => {
+      if (this._destroyed) return; // late frame after destroy() — ignore
       if (!(event.data instanceof ArrayBuffer)) return;
       this._handleMessage(new Uint8Array(event.data));
     };

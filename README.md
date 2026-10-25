@@ -204,7 +204,7 @@ Open `http://localhost:3000`.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NEXT_PUBLIC_COLLAB_URL` | WebSocket URL of socket-provider | `ws://localhost:4000` |
+| `NEXT_PUBLIC_COLLAB_URL` | WebSocket URL of socket-provider (no usable default — if unset, the client falls back to the page's own origin, which only works when the socket provider is reverse-proxied behind the same host; set it explicitly in dev and production) | — |
 | `GITHUB_CLIENT_ID` | GitHub OAuth App client ID | Required |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret | Required |
 | `GITHUB_OAUTH_SCOPES` | OAuth scopes requested during authorization (`repo` includes write access to private repos — the app itself only reads) | `repo read:org read:user` |
@@ -219,6 +219,10 @@ Open `http://localhost:3000`.
 | `SOCKET_DEBUG` | `true` for verbose per-message logging | `false` |
 | `TLS_CERT` | Path to TLS certificate (enables HTTPS/WSS; omit for plain HTTP/WS) | — |
 | `TLS_KEY` | Path to TLS private key | — |
+| `DOC_GC_DELAY_MS` | Optional: idle-doc GC delay | `30000` |
+| `MAX_ROOMS` | Optional: global room ceiling | `5000` |
+| `MAX_MEMBERS_PER_ROOM` | Optional: members per room | `64` |
+| `MAX_PENDING_PER_ROOM` | Optional: pending join requests per room | `50` |
 
 ---
 

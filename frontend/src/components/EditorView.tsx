@@ -368,6 +368,9 @@ export function EditorView({
     collab.status === 'connected' ||
     collab.status === 'waiting-approval' ||
     collab.status === 'connecting';
+  // Chat only for actual members: the server drops chat messages from
+  // non-members, so a waiting guest's typed message would vanish silently.
+  const isMember = collab.status === 'connected';
 
   useEffect(() => {
     if (!isInRoom) {
@@ -469,7 +472,7 @@ export function EditorView({
               onLockRoom={collab.lockRoom}
             />
           )}
-          {isInRoom && (
+          {isMember && (
             <button
               onClick={() => animateChatPanel(!isChatOpen)}
               className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95 ${
@@ -497,11 +500,7 @@ export function EditorView({
         </div>
       </header>
 
-      {/* Main content — CSS Grid layout.
-           Desktop columns: [sidebar: var(--sidebar-w)] [editor: 1fr] [chat: 0px or 300px]
-           The chat column width is interpolated by the browser's grid engine which avoids
-           JS-driven width animation (which triggers layout reflow every frame).
-           Mobile: sidebar is fixed-overlay, grid is [editor: 1fr] [chat: 0 or 300px]. */}
+      {/* Main content — flex row: [sidebar: fixed px] [editor: 1fr] [chat: JS-animated width]. */}
       <div
         ref={rootRef}
         className="flex-1 min-h-0 overflow-hidden relative flex flex-row"
@@ -685,10 +684,9 @@ export function EditorView({
           )}
         </div>
 
-        {/* Chat panel — sits in the 3rd grid column (0px when closed, 300px when open).
-            The grid-template-columns transition handles the animation;
-            overflow:hidden on this cell clips content during the transition. */}
-        {isInRoom && (
+        {/* Chat panel — width animated frame-by-frame by animateChatPanel (rAF),
+            which also pushes exact dimensions into editor.layout(). */}
+        {isMember && (
           <div
             ref={chatPanelRef}
             className="overflow-hidden shrink-0"

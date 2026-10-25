@@ -52,9 +52,8 @@ export const ChatPanel = memo(function ChatPanel({
     ? 'bg-[#232340] text-slate-200'
     : 'bg-white text-slate-800 border border-slate-200/80';
 
-  // The panel is always in the DOM at full width inside a grid cell.
-  // The parent grid column transitions from 0fr → 300px which the browser
-  // interpolates natively on the compositor — no JS layout thrashing.
+  // The panel renders at full width; its wrapper's width is animated by the
+  // parent's rAF loop (animateChatPanel) with overflow hidden.
   return (
     <div
       className={`flex flex-col h-full border-l ${borderColor} ${panelBg} shadow-2xl md:shadow-none`}

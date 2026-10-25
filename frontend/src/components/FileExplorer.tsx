@@ -67,9 +67,12 @@ function buildTree(files: StoredFile[]): TreeNode {
       let candidate = `${prefix}${part}`;
       // Directory prefixes are shared between files with the same path; a
       // leaf NEVER shares its exact path (same-name files used to overwrite
-      // each other's node), and a leaf/dir clash renames this file's segment.
-      const occupied = usedPaths.get(candidate);
-      for (let n = 2; occupied !== undefined && (role === 'leaf' || occupied !== role); n++) {
+      // each other's node, and a leaf/dir clash hid a whole subtree). The
+      // occupancy check re-reads the map EVERY iteration — a captured value
+      // made this loop spin forever on the first collision.
+      for (let n = 2; ; n++) {
+        const occupied = usedPaths.get(candidate);
+        if (occupied === undefined || (role === 'dir' && occupied === 'dir')) break;
         const dot = part.lastIndexOf('.');
         const stem = dot > 0 ? part.slice(0, dot) : part;
         const ext = dot > 0 ? part.slice(dot) : '';
@@ -610,7 +613,11 @@ export const FileExplorer = memo(function FileExplorer({
           }`}
           onDragOver={(e) => {
             e.preventDefault();
-            if (draggedFileId && sharedFiles.some((f) => f.id === draggedFileId)) {
+            // Only the host can remove files from the collab room (matches
+            // the context menu / minus button); a non-host dragging out used
+            // to destroy their own doc connection while the file stayed
+            // shared, silently desyncing their editor.
+            if (isHost && draggedFileId && sharedFiles.some((f) => f.id === draggedFileId)) {
               setIsOverLocal(true);
             }
           }}
@@ -629,6 +636,7 @@ export const FileExplorer = memo(function FileExplorer({
             e.preventDefault();
             setIsOverLocal(false);
             if (
+              isHost &&
               draggedFileId &&
               onRemoveFromCollab &&
               sharedFiles.some((f) => f.id === draggedFileId)

@@ -420,13 +420,25 @@ export async function fetchFromPublicUrl(
       'Invalid GitHub URL. Supported formats:\n• https://github.com/owner/repo/blob/branch/file\n• https://raw.githubusercontent.com/owner/repo/branch/file',
     );
   }
-  const rawUrl = buildRawUrl(parsed.owner, parsed.repo, parsed.branch, parsed.path);
-  const res = await fetch(rawUrl);
-  if (!res.ok) {
-    if (res.status === 404) {
-      throw new Error('File not found. Make sure the repository and file are public.');
+  // Branch names may legally contain '/' (release/v1) and a permalink cannot
+  // be split unambiguously — try each possible split until one resolves.
+  const segments = parsed.path.split('/');
+  let lastRes: Response | null = null;
+  for (let take = 1; take <= segments.length; take++) {
+    const branch = [parsed.branch, ...segments.slice(0, take - 1)].join('/');
+    const path = segments.slice(take - 1).join('/');
+    if (!branch || !path) continue;
+    const res = await fetch(buildRawUrl(parsed.owner, parsed.repo, branch, path));
+    if (res.ok) {
+      return { fileName: parsed.fileName, content: await res.text() };
     }
-    throw new Error(`Failed to fetch file (${res.status}).`);
+    lastRes = res;
   }
-  return { fileName: parsed.fileName, content: await res.text() };
+  if (!lastRes) {
+    throw new Error('File not found. Make sure the repository and file are public.');
+  }
+  if (lastRes.status === 404) {
+    throw new Error('File not found. Make sure the repository and file are public.');
+  }
+  throw new Error(`Failed to fetch file (${lastRes.status}).`);
 }

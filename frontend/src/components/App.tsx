@@ -154,7 +154,12 @@ function AppInner() {
   useEffect(() => {
     if (!isInitialized) return;
     const handleBeforeUnload = () => {
-      saveFiles(lastSavedFilesRef.current);
+      // Same invariant as the debounced save: never write back the exact
+      // array hydrated from storage — if it was corrupt (fallback []),
+      // persisting it would destroy what might still be recoverable.
+      if (lastSavedFilesRef.current !== hydratedFilesRef.current) {
+        saveFiles(lastSavedFilesRef.current);
+      }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);

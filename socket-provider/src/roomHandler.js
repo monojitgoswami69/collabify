@@ -188,8 +188,11 @@ export function createRoomHandler({ rooms, docs }) {
             }
             const name = sanitizeStr(file.name, 'untitled', 200);
             const language = sanitizeStr(file.language, '', 40);
-            room.addSharedFile({ id: file.id, name, language, content });
             docs.seed(`${roomId}/${file.id}`, content);
+            // The Y.Doc owns the content from here — retaining the seed in
+            // room metadata doubled the per-room memory a scripted host
+            // could pin (nothing ever reads it back).
+            room.addSharedFile({ id: file.id, name, language });
             room.broadcastJson({
               type: OUT.FILE_SHARED,
               file: { id: file.id, name, language },
@@ -202,11 +205,8 @@ export function createRoomHandler({ rooms, docs }) {
             if (!room || !room.isHost(peerId)) return;
             if (!Array.isArray(msg.files)) return;
             if (msg.files.length > MAX_REORDER_LIST_LEN) return;
-            const dropped = room.reorderSharedFiles(msg.files);
-            // Files dropped from the ordering must not leave orphaned docs.
-            for (const fileId of dropped) {
-              docs.destroy(`${roomId}/${fileId}`);
-            }
+            // Ordering only — nothing is removed, so no docs are destroyed.
+            room.reorderSharedFiles(msg.files);
             room.broadcastJson({
               type: OUT.FILES_REORDERED,
               sharedFiles: room.getSharedFilesList(),

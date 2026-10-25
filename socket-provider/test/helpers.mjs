@@ -9,7 +9,7 @@ function portForFile() {
   const file = import.meta.url;
   let h = 0;
   for (const ch of file) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return 4200 + (h % 500);
+  return 4500 + (h % 500);
 }
 
 export const SERVER_PORT = portForFile();

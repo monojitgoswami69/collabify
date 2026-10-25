@@ -172,12 +172,14 @@ export class Room {
   }
 
   /**
-   * Replace shared-file ordering by an explicit id list. Invalid entries
-   * (non-objects / non-string ids) are skipped, never dereferenced — a null
-   * element here once crashed the whole process. Returns the ids that were
-   * dropped from the room so their docs can be destroyed.
+   * Apply an explicit ordering to the shared files. Ordering only — files
+   * missing from the list are KEPT (appended in their previous order):
+   * removal is unshare-file's job. Treating the client list as authoritative
+   * for removal made a reorder racing a just-shared file's echo destroy the
+   * new file and its doc. Invalid entries (non-objects / non-string ids) are
+   * skipped, never dereferenced — a null element here once crashed the
+   * whole process.
    * @param {unknown} fileList
-   * @returns {string[]}
    */
   reorderSharedFiles(fileList) {
     const oldMap = this.sharedFiles;
@@ -187,16 +189,14 @@ export class Room {
       const id = f.id;
       if (typeof id !== 'string') continue;
       const existing = oldMap.get(id);
-      if (existing) newMap.set(id, existing);
+      if (existing && !newMap.has(id)) newMap.set(id, existing);
     }
-    const dropped = [];
-    for (const id of oldMap.keys()) {
-      if (!newMap.has(id)) dropped.push(id);
+    for (const [id, existing] of oldMap) {
+      if (!newMap.has(id)) newMap.set(id, existing);
     }
     this.sharedFiles = newMap;
-    return dropped;
   }
 }
 
 /** @typedef {{ ws: import('ws').WebSocket, displayName: string, color: string }} Member */
-/** @typedef {{ id: string, name: string, language: string, content: string }} SharedFile */
+/** @typedef {{ id: string, name: string, language: string }} SharedFile */

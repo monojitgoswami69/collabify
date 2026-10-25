@@ -121,9 +121,15 @@ export function useCollabRoom() {
       },
       onError: (msg) => {
         const prov = providerRef.current;
-        const isRoomNotFound = msg.toLowerCase().includes('does not exist');
-        const isLocked = msg.toLowerCase().includes('locked');
-        const isRoomLevelError = isRoomNotFound || isLocked; // inline in the join modal
+        const m = msg.toLowerCase();
+        // Room-level join failures surface inline in the join modal
+        // (capacity errors included — they were toast-only before).
+        const isRoomLevelError =
+          m.includes('does not exist') ||
+          m.includes('locked') ||
+          m.includes('full') ||
+          m.includes('capacity') ||
+          m.includes('pending join requests');
 
         if (prov && !prov.isHost && isRoomLevelError) {
           setJoinError(msg);
