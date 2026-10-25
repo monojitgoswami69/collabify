@@ -423,7 +423,10 @@ export async function fetchFromPublicUrl(
   // Branch names may legally contain '/' (release/v1) and a permalink cannot
   // be split unambiguously — try each possible split until one resolves.
   const segments = parsed.path.split('/');
-  let lastRes: Response | null = null;
+  // Try each branch/path split (branch names may contain '/'). Only a clean
+  // 404 advances to the next interpretation — a rate-limit or server error
+  // on the correct split aborts immediately instead of silently importing a
+  // different split's content.
   for (let take = 1; take <= segments.length; take++) {
     const branch = [parsed.branch, ...segments.slice(0, take - 1)].join('/');
     const path = segments.slice(take - 1).join('/');
@@ -432,13 +435,9 @@ export async function fetchFromPublicUrl(
     if (res.ok) {
       return { fileName: parsed.fileName, content: await res.text() };
     }
-    lastRes = res;
+    if (res.status !== 404) {
+      throw new Error(`Failed to fetch file (${res.status}).`);
+    }
   }
-  if (!lastRes) {
-    throw new Error('File not found. Make sure the repository and file are public.');
-  }
-  if (lastRes.status === 404) {
-    throw new Error('File not found. Make sure the repository and file are public.');
-  }
-  throw new Error(`Failed to fetch file (${lastRes.status}).`);
+  throw new Error('File not found. Make sure the repository and file are public.');
 }

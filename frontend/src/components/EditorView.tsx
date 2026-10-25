@@ -261,17 +261,23 @@ export function EditorView({
   }, [activeFileId]);
 
   useEffect(() => {
-    if (typeof localStorage === 'undefined') return;
-    const saved = localStorage.getItem('editor-font-size');
-    if (saved) {
-      const n = parseInt(saved, 10);
-      if (Number.isFinite(n) && n >= 8 && n <= 40) setFontSize(n);
+    try {
+      const saved = localStorage.getItem('editor-font-size');
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (Number.isFinite(n) && n >= 8 && n <= 40) setFontSize(n);
+      }
+    } catch {
+      /* storage blocked — session-only font size */
     }
   }, []);
 
   useEffect(() => {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem('editor-font-size', fontSize.toString());
+    try {
+      localStorage.setItem('editor-font-size', fontSize.toString());
+    } catch {
+      /* storage blocked */
+    }
   }, [fontSize]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);

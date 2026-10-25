@@ -15,6 +15,8 @@ import * as decoding from 'lib0/decoding.js';
 
 const MSG_SYNC = 0;
 const MSG_AWARENESS = 1;
+// Mirrors socket-provider MAX_FILE_CONTENT_BYTES — keep in sync.
+const MAX_SHARE_CONTENT_BYTES = 1 * 1024 * 1024;
 
 export interface CollabMember {
   peerId: string;
@@ -73,7 +75,7 @@ export interface CollabEvents {
   onRoomLocked: (locked: boolean) => void;
 }
 
-export const CURSOR_COLORS = [
+const CURSOR_COLORS = [
   '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A',
   '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
   '#F1948A', '#82E0AA', '#F0B27A', '#AED6F1',
@@ -382,6 +384,14 @@ export class CollabProvider {
   }
 
   shareFile(file: { id: string; name: string; language: string; content: string }) {
+    // Pre-flight the server's 1 MiB content cap. Without this, a larger file
+    // blew the 2 MiB ws frame cap instead: the server closed the control
+    // socket with 1009 and the host was ejected from their own room before
+    // the graceful "too large" error could ever be sent.
+    if (new Blob([file.content]).size > MAX_SHARE_CONTENT_BYTES) {
+      this.events.onError('File is too large to share (1 MiB max).');
+      return;
+    }
     this._sendJson({ type: 'share-file', file });
   }
 
@@ -513,9 +523,9 @@ export class CollabProvider {
 
       case 'files-reordered': {
         const sharedFiles = (msg.sharedFiles as SharedFileInfo[]) || [];
-        // Drop connections for files the host removed from the ordering —
-        // their docs were destroyed server-side; keeping the entry would
-        // return a dead connection if the id is ever re-shared.
+        // The server's reorder is ordering-only and always echoes the FULL
+        // list, so every connection id should appear here; this prune is
+        // defensive only (a divergent server must not leave dead conns).
         const kept = new Set(sharedFiles.map((f) => f.id));
         for (const fileId of Array.from(this.docConnections.keys())) {
           if (!kept.has(fileId)) this.closeFileConnection(fileId);

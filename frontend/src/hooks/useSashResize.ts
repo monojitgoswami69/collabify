@@ -42,7 +42,7 @@ export function useSashResize(
 
   // Initialize from localStorage on mount
   useEffect(() => {
-    if (typeof localStorage !== 'undefined') {
+    try {
       const saved = localStorage.getItem('collabify:sidebarWidth');
       if (saved) {
         const n = parseInt(saved, 10);
@@ -51,6 +51,8 @@ export function useSashResize(
           setSidebarWidth(n);
         }
       }
+    } catch {
+      /* storage blocked — default width */
     }
   }, []);
 

@@ -45,14 +45,20 @@ export const CollabRoomModal = memo(function CollabRoomModal({
 
   // Initialise once on the client (avoids hydration mismatch).
   useEffect(() => {
-    setDisplayName(localStorage.getItem('collabify_displayName') || '');
+    try {
+      setDisplayName(localStorage.getItem('collabify_displayName') || '');
+    } catch {
+      /* storage blocked */
+    }
     hydratedRef.current = true;
   }, []);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    if (typeof localStorage !== 'undefined') {
+    try {
       localStorage.setItem('collabify_displayName', displayName);
+    } catch {
+      /* storage blocked */
     }
   }, [displayName]);
 
