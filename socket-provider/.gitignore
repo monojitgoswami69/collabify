@@ -22,3 +22,6 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# local databases
+data/
