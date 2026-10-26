@@ -98,7 +98,7 @@ type WirePart =
   | { functionResponse: { name: string; response: ToolResult } };
 type WireContent = { role: 'user' | 'model'; parts: WirePart[] };
 
-function threadToContents(thread: AgentThreadItem[]): WireContent[] {
+export function threadToContents(thread: AgentThreadItem[]): WireContent[] {
   const out: WireContent[] = [];
   for (const item of thread) {
     if (item.role === 'user') {

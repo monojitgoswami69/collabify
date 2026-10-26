@@ -131,7 +131,7 @@ export function previewPatch(
   return patch.ok ? { before: content, after: patch.content } : null;
 }
 
-function computePatch(
+export function computePatch(
   content: string,
   edits: { find: string; replace: string }[],
 ): { ok: true; content: string; applied: number } | { ok: false; error: string } {

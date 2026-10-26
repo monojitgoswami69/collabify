@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { EditorView } from './EditorView';
 import { ThemeProvider } from '@/hooks/useTheme';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useCollabRoom } from '@/hooks/useCollabRoom';
 import { useAgent } from '@/hooks/useAgent';
 import { useAccount } from '@/hooks/useAccount';
@@ -576,8 +577,10 @@ function AppInner() {
 
 export function App() {
   return (
-    <ThemeProvider>
-      <AppInner />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AppInner />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

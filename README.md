@@ -127,6 +127,17 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 - Real-time room-wide chat over the control channel
 - Server-stamped messages with peer identity and timestamps, rate-limited per peer
 
+### Accounts & Cloud Sync
+- Sign in with GitHub (reuses the OAuth popup — one sign-in covers both account and repo import); sessions are opaque 30-day tokens, hashed at rest in SQLite
+- The workspace syncs to the server (last-write-wins per file): pull on sign-in, debounced push as you type, deletions as tombstones so other devices converge on load
+- Persistence is Node's built-in `node:sqlite` — zero new services; DB path via `COLLABIFY_DB_PATH` (default `data/collabify.db`, gitignored). localStorage remains the offline cache
+- Sync is pull-on-load (no realtime cross-device push yet); a second device converges when it loads the app
+
+### Durable Rooms
+- Rooms survive their host's connection: when the last member leaves, shared-file metadata and full Yjs document states are snapshotted to SQLite; a CREATE with the same id revives everything (fresh tokens, creator becomes host) until the TTL purge (`ROOM_TTL_HOURS`, default 24; `0` disables)
+- Live docs are snapshotted periodically (crash resilience — proven by a SIGKILL test) and on graceful shutdown
+- The join dialog offers one-click rejoin of your last room after a refresh
+
 ### AI Agent (bring your own key)
 - Built-in workspace-aware agent (Sparkles button in the header) powered by the Gemini API with **your own key** — stored only in your browser, sent per-request to a stateless proxy route; no server-side credentials exist
 - Tools: list/read workspace files (500-line sliding-window reads), **patch-based editing** (ordered unique-match find/replace — never a full-file rewrite), create/delete files, Google-Search-grounded web search, and Python code execution in Gemini's sandbox
