@@ -35,6 +35,7 @@ const useIsomorphicLayoutEffect =
 function AppInner() {
   const [files, setFiles] = useState<StoredFile[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [openTabIds, setOpenTabIds] = useState<string[]>([]);
   const [loadingFileId, setLoadingFileId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [showGitHubModal, setShowGitHubModal] = useState(false);
@@ -71,6 +72,27 @@ function AppInner() {
       setActive: (fileId) => setActiveFileId(fileId),
     };
   });
+
+  // Tabs: opening a file adds it to the tab strip; closing falls back to a
+  // neighbor so the editor never lands on a ghost.
+  const openInTab = useCallback((id: string) => {
+    setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setActiveFileId(id);
+  }, []);
+  const closeTab = useCallback(
+    (id: string) => {
+      setOpenTabIds((prev) => {
+        const idx = prev.indexOf(id);
+        const next = prev.filter((t) => t !== id);
+        if (activeFileIdRef.current === id) {
+          const neighbor = next[Math.min(idx, next.length - 1)];
+          setActiveFileId(neighbor ?? null);
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   // ── AI agent ─────────────────────────────────────────────────────────
   // The agent's tools operate on live workspace state, read fresh at call
@@ -270,8 +292,8 @@ function AppInner() {
       lastModified: Date.now(),
     };
     setFiles((prev) => [...prev, newFile]);
-    setActiveFileId(newFile.id);
-  }, [files.length]);
+    openInTab(newFile.id);
+  }, [files.length, openInTab]);
 
   const handleFileUpload = useCallback(async (file: File) => {
     const text = await file.text();
@@ -285,7 +307,7 @@ function AppInner() {
       lastModified: Date.now(),
     };
     setFiles((prev) => [...prev, newFile]);
-    setActiveFileId(fileId);
+    openInTab(fileId);
     detectLanguageAI(file.name, text).then((aiLang) => {
       if (aiLang && aiLang !== syncLanguage) {
         setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, language: aiLang } : f)));
@@ -301,8 +323,9 @@ function AppInner() {
       const next = prev.filter((f) => f.id !== id);
       if (next.length === prev.length) return;
       setFiles(next);
-      if (activeFileIdRef.current === id) {
-        setActiveFileId(next.length > 0 ? next[0]!.id : null);
+      closeTab(id);
+      if (activeFileIdRef.current === id && next.length > 0) {
+        setActiveFileId(next[0]!.id);
       }
       // Unshare from the collab room if this file is shared — otherwise it
       // lingers as an editable ghost backed by nothing (same invariant as
@@ -315,7 +338,7 @@ function AppInner() {
         .then(({ disposeModelsForFile }) => disposeModelsForFile(id))
         .catch(() => {});
     },
-    [],
+    [closeTab],
   );
 
   const handleCodeChange = useCallback((id: string, newCode: string) => {
@@ -352,7 +375,7 @@ function AppInner() {
       contentLoaded: true,
     };
     setFiles((prev) => [...prev, newFile]);
-    setActiveFileId(fileId);
+    openInTab(fileId);
     detectLanguageAI(fileName, content).then((aiLang) => {
       if (aiLang && aiLang !== language) {
         setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, language: aiLang } : f)));
@@ -380,12 +403,15 @@ function AppInner() {
       };
     });
     setFiles((prev) => [...prev, ...newFiles]);
-    if (newFiles.length > 0) setActiveFileId(newFiles[0].id);
+    if (newFiles.length > 0) {
+      setOpenTabIds((prev) => [...prev, ...newFiles.map((f) => f.id)]);
+      setActiveFileId(newFiles[0].id);
+    }
   }, []);
 
   const handleFileSelect = useCallback(
     async (id: string) => {
-      setActiveFileId(id);
+      openInTab(id);
       // In-flight guard: a second click on the same loading file (or on
       // another file while one loads) must not stack duplicate fetches.
       const loadingRef = loadingFileIdRef.current;
@@ -445,7 +471,7 @@ function AppInner() {
         }
       }
     },
-    [],
+    [openInTab],
   );
 
   const handleRepoDelete = useCallback(
@@ -463,6 +489,7 @@ function AppInner() {
         return `${f.repoOrigin.owner}/${f.repoOrigin.repo}` !== repoKey;
       });
       setFiles(next);
+      setOpenTabIds((prev) => prev.filter((tid) => !removedIds.includes(tid)));
       const currentActiveId = activeFileIdRef.current;
       if (currentActiveId && !next.some((f) => f.id === currentActiveId)) {
         setActiveFileId(next.length > 0 ? next[0]!.id : null);
@@ -513,6 +540,13 @@ function AppInner() {
         agent={agent}
         account={account}
         sync={sync}
+        openTabIds={openTabIds}
+        onCloseTab={closeTab}
+        onImportFiles={(imported) => {
+          setFiles((prev) => [...prev, ...imported]);
+          setOpenTabIds((prev) => [...prev, ...imported.map((f) => f.id)]);
+          if (imported.length > 0) setActiveFileId(imported[0]!.id);
+        }}
       />
       <GitHubImportModal
         isOpen={showGitHubModal}

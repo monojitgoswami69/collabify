@@ -389,6 +389,7 @@ export function useCollabRoom() {
   return {
     ...state,
     setFollowingPeer,
+    addToast,
     joinError,
     clearJoinError: useCallback(() => setJoinError(null), []),
     createRoom,

@@ -370,6 +370,66 @@ function buildRawUrl(owner: string, repo: string, branch: string, path: string):
   return `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodePath(path)}`;
 }
 
+// ─── Commit back to GitHub ─────────────────────────────────────────────
+
+function toBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+export interface CommitResult {
+  sha: string;
+  htmlUrl: string | null;
+}
+
+/** Commit a file's content to its repository (creates or updates). */
+export async function commitFileToRepo(
+  token: string,
+  origin: { owner: string; repo: string; branch: string },
+  path: string,
+  content: string,
+  message: string,
+): Promise<CommitResult> {
+  const base = apiUrl(
+    `/github/repos/${encodeURIComponent(origin.owner)}/${encodeURIComponent(origin.repo)}/contents`,
+  );
+  // Current sha (update) — 404 means the file is new on that branch.
+  let sha: string | undefined;
+  const getRes = await fetch(`${base}?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(origin.branch)}`, {
+    headers: authHeaders(token),
+  });
+  if (getRes.ok) {
+    const data = (await getRes.json()) as { sha?: string };
+    if (typeof data.sha === 'string') sha = data.sha;
+  } else if (getRes.status !== 404) {
+    throw new Error('Could not read the current file from GitHub.');
+  }
+
+  const putRes = await fetch(base, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      path,
+      content: toBase64Utf8(content),
+      message,
+      branch: origin.branch,
+      ...(sha ? { sha } : {}),
+    }),
+  });
+  if (!putRes.ok) {
+    if (putRes.status === 409) throw new Error('The file changed on GitHub — reload and retry.');
+    if (putRes.status === 403) throw new Error('GitHub denied the push — check token scopes/permissions.');
+    throw new Error(`Commit failed (${putRes.status}).`);
+  }
+  const data = (await putRes.json()) as { content?: { sha?: string; html_url?: string } };
+  return { sha: data.content?.sha ?? '', htmlUrl: data.content?.html_url ?? null };
+}
+
 // ─── Public URL parsing ────────────────────────────────────────────────
 
 export interface ParsedGitHubUrl {

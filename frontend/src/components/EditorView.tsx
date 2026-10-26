@@ -12,6 +12,7 @@ import { Sash } from './Sash';
 import { useSashResize } from '@/hooks/useSashResize';
 import { StoredFile } from '@/services/storageService';
 import { SharedFileInfo } from '@/services/collabService';
+import { getStoredToken, commitFileToRepo } from '@/services/githubService';
 import { useTheme } from '@/hooks/useTheme';
 import { detectLanguage, detectLanguageAI } from '@/utils/detectLanguage';
 import {
@@ -36,6 +37,10 @@ import type { AgentController } from '@/hooks/useAgent';
 import type { Account } from '@/hooks/useAccount';
 import type { WorkspaceSync } from '@/hooks/useWorkspaceSync';
 import { AccountMenu } from './AccountMenu';
+import { CommandPalette, type PaletteAction } from './CommandPalette';
+import { formatCode, formatterLanguages } from '@/lib/formatter';
+import { exportWorkspaceZip, importWorkspaceZip } from '@/lib/workspaceZip';
+
 
 // Dynamic import keeps Monaco out of the SSR/build path entirely.
 const ModernMonacoEditor = dynamic(
@@ -90,6 +95,9 @@ interface EditorViewProps {
   agent: AgentController;
   account: Account;
   sync: WorkspaceSync;
+  openTabIds: string[];
+  onCloseTab: (id: string) => void;
+  onImportFiles: (files: StoredFile[]) => void;
 }
 
 export function EditorView({
@@ -109,6 +117,9 @@ export function EditorView({
   agent,
   account,
   sync,
+  openTabIds,
+  onCloseTab,
+  onImportFiles,
 }: EditorViewProps) {
   const { isDark, toggleTheme } = useTheme();
 
@@ -470,6 +481,112 @@ export function EditorView({
   // non-members, so a waiting guest's typed message would vanish silently.
   const isMember = collab.status === 'connected';
 
+  // ── Command palette ─────────────────────────────────────────────────
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const commitToGitHub = useCallback(
+    async (fileId: string) => {
+      const file = files.find((f) => f.id === fileId);
+      const token = getStoredToken();
+      if (!file?.repoOrigin || !file.contentLoaded) return;
+      if (!token) {
+        collab.addToast?.('Connect GitHub first (Import from GitHub → Connect).', 'error');
+        return;
+      }
+      try {
+        const result = await commitFileToRepo(
+          token,
+          file.repoOrigin,
+          file.path || file.name,
+          file.content,
+          `Update ${file.name} via Collabify`,
+        );
+        collab.addToast?.(`Committed ${file.name} to GitHub`, 'success');
+        void result;
+      } catch (err) {
+        collab.addToast?.((err as Error).message, 'error');
+      }
+    },
+    [files, collab],
+  );
+
+  const importZip = useCallback(
+    async (zipFile: File) => {
+      const imported = await importWorkspaceZip(zipFile, files.map((f) => f.name));
+      if (imported.length === 0) return;
+      onImportFiles(imported);
+    },
+    [files, onImportFiles],
+  );
+
+  const bumpFontSize = useCallback((delta: number) => {
+    setFontSize((f) => Math.min(40, Math.max(8, f + delta)));
+  }, []);
+
+  const paletteActions: PaletteAction[] = useMemo(() => {
+    const actions: PaletteAction[] = files.slice(0, 60).map((f) => ({
+      id: `file-${f.id}`,
+      label: f.name,
+      group: 'Files',
+      hint: f.language || undefined,
+      run: () => onFileSelect(f.id),
+    }));
+    actions.push(
+      { id: 'new-snippet', label: 'New Snippet', group: 'Workspace', run: () => onFileCreate() },
+      { id: 'import-zip', label: 'Import workspace zip…', group: 'Workspace', run: () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.zip';
+          input.onchange = () => { const f = input.files?.[0]; if (f) void importZip(f); };
+          input.click();
+        } },
+      { id: 'export-zip', label: 'Export workspace as zip', group: 'Workspace', run: () => void exportWorkspaceZip(files) },
+    );
+    if (activeFile) {
+      if (formatterLanguages().includes(activeFile.language)) {
+        actions.push({
+          id: 'format', label: `Format ${activeFile.name} (Prettier)`, group: 'Editor',
+          run: async () => {
+            try {
+              const formatted = await formatCode(activeFile.content, activeFile.language);
+              onCodeChange(activeFile.id, formatted);
+            } catch (err) { collab.addToast?.((err as Error).message, 'error'); }
+          },
+        });
+      }
+      if (activeFile.repoOrigin && activeFile.contentLoaded) {
+        actions.push({ id: 'commit', label: `Commit ${activeFile.name} to GitHub`, group: 'Editor', run: () => void commitToGitHub(activeFile.id) });
+      }
+      actions.push(
+        { id: 'font-up', label: 'Increase font size', group: 'Editor', run: () => bumpFontSize(1) },
+        { id: 'font-down', label: 'Decrease font size', group: 'Editor', run: () => bumpFontSize(-1) },
+      );
+    }
+    actions.push(
+      { id: 'toggle-agent', label: 'Toggle AI Agent sidebar', group: 'View', hint: 'agent', run: () => animateRightPanel('agent', !isAgentOpen) },
+      { id: 'toggle-theme', label: 'Toggle theme', group: 'View', run: () => toggleTheme() },
+    );
+    if (isMember) {
+      actions.push({ id: 'toggle-chat', label: 'Toggle room chat', group: 'View', run: () => animateRightPanel('chat', !isChatOpen) });
+    } else {
+      actions.push({ id: 'open-collab', label: 'Host or join a room…', group: 'Collaboration', run: () => onOpenCollab() });
+    }
+    if (account.user) {
+      actions.push({ id: 'sync-now', label: 'Sync workspace now', group: 'Workspace', run: () => void sync.pullAndMerge() });
+    }
+    return actions;
+  }, [files, activeFile, collab, account.user, isAgentOpen, isChatOpen, isMember, onFileSelect, onFileCreate, onOpenCollab, onCodeChange, sync, importZip, commitToGitHub, bumpFontSize, animateRightPanel, toggleTheme]);
+
   useEffect(() => {
     if (!isInRoom) {
       chatWidthRef.current = 0;
@@ -735,6 +852,7 @@ export function EditorView({
                 onRemoveFromCollab={handleRemoveFromCollab}
                 onSelectCollabFile={handleSelectCollabFile}
                 onReorderCollabFiles={handleReorderCollabFiles}
+                onCommitToGitHub={commitToGitHub}
               />
             )}
           </div>
@@ -753,6 +871,33 @@ export function EditorView({
           ref={editorContainerRef}
           className="flex flex-col min-w-0 flex-1 overflow-hidden relative"
         >
+          {openTabIds.length > 0 && (
+            <div className={`flex items-stretch overflow-x-auto shrink-0 border-b ${isDark ? 'border-slate-800/50 bg-[#1a1a24]' : 'border-slate-300/50 bg-[#DFE3EB]'} custom-scrollbar`}>
+              {openTabIds.map((tid) => {
+                const tf = files.find((f) => f.id === tid) ?? collab.sharedFiles.find((f) => f.id === tid);
+                if (!tf) return null;
+                const tActive = tid === activeFileId;
+                return (
+                  <div
+                    key={tid}
+                    onClick={() => onFileSelect(tid)}
+                    className={`group flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 text-[11px] font-medium cursor-pointer border-r shrink-0 max-w-[180px] ${
+                      isDark ? 'border-slate-800/50' : 'border-slate-300/50'
+                    } ${tActive ? (isDark ? 'bg-[#232332] text-blue-400' : 'bg-[#EEF1F5] text-blue-600') : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    <span className="truncate">{tf.name}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCloseTab(tid); }}
+                      className="opacity-0 group-hover:opacity-100 hover:text-red-400 p-0.5 shrink-0"
+                      aria-label={`Close ${tf.name} tab`}
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {!activeFile ? (
             <div className={`flex-1 flex flex-col items-center justify-center ${bgEditor}`}>
               <div className="text-center max-w-md px-8">
@@ -907,6 +1052,8 @@ export function EditorView({
           )}
         </div>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} actions={paletteActions} />
 
       {collab.toasts.length > 0 && (
         <div className="fixed top-4 right-4 z-100 flex flex-col gap-2 pointer-events-none">

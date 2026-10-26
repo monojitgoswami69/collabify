@@ -6,6 +6,7 @@ import { SharedFileInfo } from '@/services/collabService';
 import { langIconMap } from '@/lib/langIcons';
 import { useTheme } from '@/hooks/useTheme';
 import {
+  CloudUpload,
   FileCode,
   FolderOpen,
   FolderClosed,
@@ -124,12 +125,16 @@ function ContextMenu({
   onClose,
   onAddToCollab,
   onRemoveFromCollab,
+  onCommitToGitHub,
+  canCommit,
   isDark,
 }: {
   state: ContextMenuState;
   onClose: () => void;
   onAddToCollab: (fileId: string) => void;
   onRemoveFromCollab: (fileId: string) => void;
+  onCommitToGitHub?: (fileId: string) => void;
+  canCommit: boolean;
   isDark: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -152,6 +157,17 @@ function ContextMenu({
       }`}
       style={{ left: state.x, top: state.y }}
     >
+      {!state.isInCollab && canCommit && onCommitToGitHub && (
+        <button
+          onClick={() => {
+            onCommitToGitHub(state.fileId);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors text-green-500 hover:bg-green-500/10"
+        >
+          <CloudUpload size={13} /> Commit to GitHub
+        </button>
+      )}
       {state.isInCollab ? (
         <button
           onClick={() => {
@@ -367,6 +383,7 @@ interface FileExplorerProps {
   onRemoveFromCollab?: (fileId: string) => void;
   onSelectCollabFile?: (fileId: string) => void;
   onReorderCollabFiles?: (newOrder: SharedFileInfo[]) => void;
+  onCommitToGitHub?: (fileId: string) => void;
 }
 
 export const FileExplorer = memo(function FileExplorer({
@@ -384,6 +401,7 @@ export const FileExplorer = memo(function FileExplorer({
   onRemoveFromCollab,
   onSelectCollabFile,
   onReorderCollabFiles,
+  onCommitToGitHub,
 }: FileExplorerProps) {
   const { isDark } = useTheme();
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -708,6 +726,11 @@ export const FileExplorer = memo(function FileExplorer({
           onClose={() => setContextMenu(null)}
           onAddToCollab={(fileId) => onAddToCollab?.(fileId)}
           onRemoveFromCollab={(fileId) => onRemoveFromCollab?.(fileId)}
+          onCommitToGitHub={onCommitToGitHub}
+          canCommit={(() => {
+            const f = files.find((x) => x.id === contextMenu.fileId);
+            return !!f?.repoOrigin && f.contentLoaded !== false;
+          })()}
           isDark={isDark}
         />
       )}
