@@ -122,6 +122,15 @@ function createFile(ws: AgentWorkspaceContext, args: { name?: unknown; content?:
  * An empty `find` appends `replace` at the end. All-or-nothing per call:
  * if any patch fails, NOTHING is applied and the error names the failing edit.
  */
+/** Before/after preview for the approval card (never mutates state). */
+export function previewPatch(
+  content: string,
+  edits: { find: string; replace: string }[],
+): { before: string; after: string } | null {
+  const patch = computePatch(content, edits);
+  return patch.ok ? { before: content, after: patch.content } : null;
+}
+
 function computePatch(
   content: string,
   edits: { find: string; replace: string }[],

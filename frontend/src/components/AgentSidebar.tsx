@@ -8,6 +8,7 @@
 // localStorage and is sent per-request to /api/ai/chat — nowhere else.
 
 import { useEffect, useRef, useState, memo } from 'react';
+import dynamic from 'next/dynamic';
 import {
   Sparkles,
   X,
@@ -33,6 +34,17 @@ import {
 } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import type { AgentController } from '@/hooks/useAgent';
+import type { AgentAttachment } from '@/hooks/useAgent';
+
+// Lazy — the diff editor ships with the agent panel, not the main bundle.
+const DiffEditor = dynamic(() => import('@monaco-editor/react').then((m) => m.DiffEditor), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[220px] flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-[#CAA4F7]" />
+    </div>
+  ),
+});
 import { AGENT_MODELS } from '@/hooks/useAgent';
 
 interface Props {
@@ -140,6 +152,7 @@ function ToolCard({
 export const AgentSidebar = memo(function AgentSidebar({ agent, onClose }: Props) {
   const { isDark } = useTheme();
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<AgentAttachment[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
   const [model, setModelState] = useState(agent.getModel());
@@ -163,9 +176,33 @@ export const AgentSidebar = memo(function AgentSidebar({ agent, onClose }: Props
   };
 
   const handleSend = () => {
-    if (!input.trim() || agent.isStreaming) return;
-    agent.send(input);
+    if ((!input.trim() && attachments.length === 0) || agent.isStreaming) return;
+    agent.send(input, attachments);
     setInput('');
+    setAttachments([]);
+  };
+
+  // Paste images directly into the composer (multimodal prompts).
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const files = [...e.clipboardData.items]
+      .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
+      .map((i) => i.getAsFile())
+      .filter((f): f is File => !!f)
+      .slice(0, 2 - attachments.length);
+    if (files.length === 0) return;
+    e.preventDefault();
+    for (const file of files) {
+      if (file.size > 3 * 1024 * 1024) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result ?? '');
+        const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        setAttachments((prev) =>
+          prev.length >= 2 ? prev : [...prev, { mimeType: file.type || 'image/png', data: base64 }],
+        );
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const bg = isDark ? 'bg-[#1E1E2A]' : 'bg-[#F0F2F6]';
@@ -338,6 +375,18 @@ export const AgentSidebar = memo(function AgentSidebar({ agent, onClose }: Props
               <div key={item.id} className="flex justify-end">
                 <div className={`max-w-[85%] px-3 py-2 rounded-lg text-[12px] leading-relaxed ${userBubble} rounded-tr-sm whitespace-pre-wrap break-words`}>
                   {item.text}
+                  {!!item.attachments?.length && (
+                    <div className="flex gap-1.5 mt-1.5 justify-end">
+                      {item.attachments.map((a, i) => (
+                        <img
+                          key={i}
+                          src={`data:${a.mimeType};base64,${a.data}`}
+                          alt="attachment"
+                          className="w-16 h-16 object-cover rounded-md"
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -410,7 +459,31 @@ export const AgentSidebar = memo(function AgentSidebar({ agent, onClose }: Props
                   ? `Creates "${String(agent.pendingApproval.call.args.name ?? '')}" in your workspace.`
                   : 'This applies a find/replace patch to the file.'}
             </p>
-            <JsonBlock value={agent.pendingApproval.call.args} />
+            {agent.pendingApproval.preview ? (
+              <div className="mt-2 rounded-md overflow-hidden border border-[#CAA4F7]/30">
+                <div className={`px-2 py-1 text-[9px] font-bold uppercase tracking-wider ${textMuted}`}>
+                  {agent.pendingApproval.preview.title} — before → after
+                </div>
+                <DiffEditor
+                  height="220px"
+                  original={agent.pendingApproval.preview.before}
+                  modified={agent.pendingApproval.preview.after}
+                  language={agent.pendingApproval.preview.language || 'plaintext'}
+                  theme={isDark ? 'vs-dark' : 'vs'}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    renderSideBySide: false,
+                    lineNumbers: 'off',
+                    fontSize: 11,
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                  }}
+                />
+              </div>
+            ) : (
+              <JsonBlock value={agent.pendingApproval.call.args} />
+            )}
             <div className="flex gap-2 mt-2">
               <button
                 onClick={() => agent.resolveApproval(true)}
@@ -432,10 +505,30 @@ export const AgentSidebar = memo(function AgentSidebar({ agent, onClose }: Props
 
       {/* Composer */}
       <div className={`p-3 border-t ${border} shrink-0`}>
+        {attachments.length > 0 && (
+          <div className="flex gap-2 mb-2">
+            {attachments.map((a, i) => (
+              <div key={i} className="relative">
+                <img
+                  src={`data:${a.mimeType};base64,${a.data}`}
+                  alt="attachment"
+                  className="w-14 h-14 object-cover rounded-md border border-[#CAA4F7]/40"
+                />
+                <button
+                  onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="relative">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -458,9 +551,9 @@ export const AgentSidebar = memo(function AgentSidebar({ agent, onClose }: Props
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim() || !hasKey}
+              disabled={(!input.trim() && attachments.length === 0) || !hasKey}
               className={`absolute right-1.5 bottom-1.5 p-1.5 rounded-md transition-colors ${
-                input.trim() && hasKey ? 'text-[#CAA4F7] hover:bg-[#CAA4F7]/10' : 'opacity-30 cursor-not-allowed text-[#CAA4F7]'
+                (input.trim() || attachments.length > 0) && hasKey ? 'text-[#CAA4F7] hover:bg-[#CAA4F7]/10' : 'opacity-30 cursor-not-allowed text-[#CAA4F7]'
               }`}
               title="Send"
             >

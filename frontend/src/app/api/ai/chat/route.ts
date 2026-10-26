@@ -161,9 +161,21 @@ function sanitizeContents(raw: unknown): Content[] | null {
       const part = p as Record<string, unknown>;
       const keys = Object.keys(part);
       const ok = keys.every((k) =>
-        ['text', 'functionCall', 'functionResponse'].includes(k),
+        ['text', 'inlineData', 'functionCall', 'functionResponse'].includes(k),
       );
       if (!ok || keys.length === 0) return null;
+      if (keys.includes('inlineData')) {
+        const media = part.inlineData as { mimeType?: unknown; data?: unknown } | undefined;
+        if (
+          !media ||
+          typeof media.mimeType !== 'string' ||
+          !media.mimeType.startsWith('image/') ||
+          typeof media.data !== 'string' ||
+          media.data.length > 5_600_000 // ~4 MB binary as base64
+        ) {
+          return null;
+        }
+      }
     }
     out.push({ role, parts } as Content);
   }

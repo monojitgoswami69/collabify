@@ -269,15 +269,74 @@ export function EditorView({
     sidebarWidth,
   ]);
 
+  // Latest agent/file state for the editor context-menu actions.
+  const agentRef = useRef(agent);
+  agentRef.current = agent;
+  const activeFileRef = useRef(activeFile);
+  activeFileRef.current = activeFile;
+  const openAgentRef = useRef((prompt?: string) => {
+    animateRightPanel('agent', true);
+    if (prompt) agentRef.current.send(prompt);
+  });
+  openAgentRef.current = (prompt?: string) => {
+    animateRightPanel('agent', true);
+    if (prompt) agentRef.current.send(prompt);
+  };
+
   const handleEditorReady = useCallback(
     (ed: Monaco.editor.IStandaloneCodeEditor) => {
       editorRef.current = ed;
       editorLayoutFnRef.current = (w, h, postponeRendering = false) =>
         ed.layout({ width: w, height: h }, postponeRendering);
-      
+
       // Trigger an initial layout calculation using Monaco's internal DOM reader
       ed.layout();
+
+      // Inline AI actions on the current selection.
+      const selectionText = (e: Monaco.editor.IStandaloneCodeEditor): string | null => {
+        const model = e.getModel();
+        const sel = e.getSelection();
+        if (!model || !sel || sel.isEmpty()) return null;
+        return model.getValueInRange(sel);
+      };
+      const withSelection = (build: (sel: string, file: { name: string; id: string }) => string) => {
+        const sel = selectionText(ed);
+        const file = activeFileRef.current;
+        if (!sel || !file) return;
+        openAgentRef.current(build(sel.slice(0, 8000), { name: file.name, id: file.id }));
+      };
+      ed.addAction({
+        id: 'collabify-ai-explain',
+        label: 'AI: Explain Selection',
+        contextMenuGroupId: 'collabify',
+        contextMenuOrder: 1,
+        run: (e) =>
+          withSelection((sel, f) =>
+            `Explain this code from "${f.name}". Keep it concise and mention anything suspicious:\n\n` + "```" + `\n${sel}\n` + "```",
+          ),
+      });
+      ed.addAction({
+        id: 'collabify-ai-refactor',
+        label: 'AI: Refactor Selection',
+        contextMenuGroupId: 'collabify',
+        contextMenuOrder: 2,
+        run: (e) =>
+          withSelection((sel, f) =>
+            `Refactor the selected code in file "${f.name}" (id=${f.id}). Read the surrounding region first, then apply a minimal patch. Preserve behavior.`,
+          ),
+      });
+      ed.addAction({
+        id: 'collabify-ai-tests',
+        label: 'AI: Write Tests for Selection',
+        contextMenuGroupId: 'collabify',
+        contextMenuOrder: 3,
+        run: (e) =>
+          withSelection((sel, f) =>
+            `Write unit tests for the selected code from "${f.name}". Create a new test file with create_file (name it <name>.test.ts), covering happy paths and edge cases.\n\n` + "```" + `\n${sel}\n` + "```",
+          ),
+      });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 

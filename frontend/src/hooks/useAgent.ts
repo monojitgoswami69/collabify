@@ -16,11 +16,18 @@ import type { CollabProvider } from '@/services/collabService';
 import {
   executeAgentTool,
   buildWorkspaceContext,
+  previewPatch,
   MUTATING_TOOLS,
   KNOWN_TOOLS,
+  MAX_AGENT_FILE_BYTES,
   type AgentWorkspaceContext,
   type ToolResult,
 } from '@/lib/agentTools';
+
+const THREAD_STORAGE = 'collabify-agent-thread';
+const MAX_PERSISTED_ITEMS = 40;
+const MAX_ATTACHMENTS = 2;
+const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
 const MAX_ITERATIONS = 20;
 const KEY_STORAGE = 'collabify-gemini-key';
@@ -38,11 +45,19 @@ export interface AgentToolCall {
   args: Record<string, unknown>;
 }
 
+export interface AgentAttachment {
+  mimeType: string;
+  /** Base64 payload (no data: prefix). */
+  data: string;
+}
+
 export interface AgentThreadItem {
   id: string;
   role: 'user' | 'model' | 'tool';
   /** Rendered text (user input or assistant answer). */
   text?: string;
+  /** Images attached to a user message (not persisted). */
+  attachments?: AgentAttachment[];
   /** Tool calls requested by the model (model items). */
   calls?: AgentToolCall[];
   /** Results returned for the previous model item's calls (tool items). */
@@ -53,10 +68,19 @@ export interface AgentThreadItem {
   error?: string;
 }
 
+export interface ApprovalPreview {
+  before: string;
+  after: string;
+  language: string;
+  title: string;
+}
+
 export type ApprovalMode = 'ask' | 'auto';
 
 export interface PendingApproval {
   call: AgentToolCall;
+  /** Renderable before/after for patch previews (edit_file/create_file). */
+  preview?: ApprovalPreview;
   resolve: (allowed: boolean) => void;
 }
 
@@ -69,6 +93,7 @@ export interface UseAgentOptions {
 
 type WirePart =
   | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
   | { functionCall: { name: string; args: Record<string, unknown> } }
   | { functionResponse: { name: string; response: ToolResult } };
 type WireContent = { role: 'user' | 'model'; parts: WirePart[] };
@@ -77,7 +102,14 @@ function threadToContents(thread: AgentThreadItem[]): WireContent[] {
   const out: WireContent[] = [];
   for (const item of thread) {
     if (item.role === 'user') {
-      if (item.text) out.push({ role: 'user', parts: [{ text: item.text }] });
+      if (item.text || item.attachments?.length) {
+        const parts: WirePart[] = [];
+        if (item.text) parts.push({ text: item.text });
+        for (const a of item.attachments ?? []) {
+          parts.push({ inlineData: { mimeType: a.mimeType, data: a.data } });
+        }
+        out.push({ role: 'user', parts });
+      }
     } else if (item.role === 'model') {
       const parts: WirePart[] = [];
       if (item.text) parts.push({ text: item.text });
@@ -99,7 +131,17 @@ function threadToContents(thread: AgentThreadItem[]): WireContent[] {
 // ─── Hook ───────────────────────────────────────────────────────────────
 
 export function useAgent({ getWorkspace }: UseAgentOptions) {
-  const [thread, setThread] = useState<AgentThreadItem[]>([]);
+  const [thread, setThread] = useState<AgentThreadItem[]>(() => {
+    // Restore the last conversation (attachments are session-only).
+    try {
+      const raw = localStorage.getItem(THREAD_STORAGE);
+      if (!raw) return [];
+      const items = JSON.parse(raw) as AgentThreadItem[];
+      return Array.isArray(items) ? items.slice(-MAX_PERSISTED_ITEMS).map((it) => ({ ...it, streaming: false })) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   // Reactive mirror of localStorage so the key gate/composer update the
@@ -167,6 +209,24 @@ export function useAgent({ getWorkspace }: UseAgentOptions) {
     }
   }, []);
 
+  // Persist the conversation (minus images/streaming flags), debounced.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const slim = thread
+          .slice(-MAX_PERSISTED_ITEMS)
+          .map(({ attachments, streaming, ...rest }) => ({
+            ...rest,
+            ...(attachments?.length ? { text: `${rest.text ?? ''}\n[image attached]` } : {}),
+          }));
+        localStorage.setItem(THREAD_STORAGE, JSON.stringify(slim));
+      } catch {
+        /* storage blocked */
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [thread]);
+
   const pushItem = useCallback((item: AgentThreadItem) => {
     setThread((prev) => [...prev, item]);
   }, []);
@@ -194,6 +254,11 @@ export function useAgent({ getWorkspace }: UseAgentOptions) {
   const clearThread = useCallback(() => {
     abortRef.current?.abort();
     setThread([]);
+    try {
+      localStorage.removeItem(THREAD_STORAGE);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // ── One model turn over SSE ─────────────────────────────────────────
@@ -292,9 +357,20 @@ export function useAgent({ getWorkspace }: UseAgentOptions) {
   const askApproval = useCallback(
     (call: AgentToolCall) =>
       new Promise<boolean>((resolve) => {
-        setPendingApproval({ call, resolve });
+        // Build a renderable before/after preview so the user can judge the
+        // change instead of trusting raw JSON args.
+        let preview: ApprovalPreview | undefined;
+        const ws = getWorkspace();
+        const file = ws.files.find((f) => f.id === call.args.fileId);
+        if (call.name === 'edit_file' && file && Array.isArray(call.args.edits)) {
+          const p = previewPatch(file.content, call.args.edits as { find: string; replace: string }[]);
+          if (p) preview = { before: p.before, after: p.after, language: file.language, title: file.name };
+        } else if (call.name === 'create_file') {
+          preview = { before: '', after: String(call.args.content ?? ''), language: '', title: String(call.args.name ?? 'new file') };
+        }
+        setPendingApproval({ call, preview, resolve });
       }),
-    [],
+    [getWorkspace],
   );
 
   async function executeCall(
@@ -349,9 +425,9 @@ export function useAgent({ getWorkspace }: UseAgentOptions) {
   // ── The agent loop ──────────────────────────────────────────────────
 
   const send = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, attachments?: AgentAttachment[]) => {
       const text = rawText.trim();
-      if (!text || isStreaming) return;
+      if ((!text && !attachments?.length) || isStreaming) return;
       if (!getApiKey()) {
         pushItem({
           id: `${Date.now()}-gate`,
@@ -365,10 +441,42 @@ export function useAgent({ getWorkspace }: UseAgentOptions) {
       abortRef.current = controller;
       setIsStreaming(true);
 
+      const cleanAttachments = (attachments ?? []).slice(0, MAX_ATTACHMENTS).filter(
+        (a) => a.mimeType.startsWith('image/') && a.data.length <= (MAX_ATTACHMENT_BYTES / 3) * 4,
+      );
+
+      // @-mentions: "@name" pulls the referenced file into the prompt so the
+      // agent can work with precise context without burning a read call.
+      let enriched = text;
+      if (text.includes('@')) {
+        const ws = getWorkspace();
+        const mentioned: string[] = [];
+        for (const match of text.matchAll(/@([\w.-]+)/g)) {
+          if (mentioned.length >= 3) break;
+          const name = match[1]!.toLowerCase();
+          const file = ws.files.find(
+            (f) => f.name.toLowerCase() === name || f.name.toLowerCase().startsWith(name),
+          );
+          if (file && file.contentLoaded !== false && file.content) {
+            const lines = file.content.split('\n').slice(0, 150).join('\n');
+            mentioned.push(`[File "${file.name}" (id=${file.id}) — first 150 lines:]\n${lines}`);
+          }
+        }
+        if (mentioned.length) enriched = `${text}\n\n${mentioned.join('\n\n')}`;
+      }
+
       const userId = `${Date.now()}-u`;
-      pushItem({ id: userId, role: 'user', text });
+      pushItem({
+        id: userId,
+        role: 'user',
+        text,
+        ...(cleanAttachments.length ? { attachments: cleanAttachments } : {}),
+      });
       // Local echo of the thread for the loop (state updates are async).
-      const localThread: AgentThreadItem[] = [...threadRef.current, { id: userId, role: 'user', text }];
+      const localThread: AgentThreadItem[] = [
+        ...threadRef.current,
+        { id: userId, role: 'user', text: enriched, ...(cleanAttachments.length ? { attachments: cleanAttachments } : {}) },
+      ];
 
       try {
         for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -436,7 +544,7 @@ export function useAgent({ getWorkspace }: UseAgentOptions) {
         setIsStreaming(false);
       }
     },
-    [isStreaming, getApiKey, getApprovalMode, getModel, pushItem, patchLast, askApproval], // eslint-disable-line react-hooks/exhaustive-deps
+    [isStreaming, getApiKey, getApprovalMode, getModel, getWorkspace, pushItem, patchLast, askApproval], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   useEffect(() => () => abortRef.current?.abort(), []);
