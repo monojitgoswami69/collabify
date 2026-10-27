@@ -724,14 +724,14 @@ export function EditorView({
               roomId={collab.roomId}
               status={collab.status}
               isHost={collab.isHost}
-              isLocked={collab.isLocked}
+              mode={collab.mode}
               members={collab.members}
               pending={collab.pending}
               onApprove={collab.approveJoin}
               onReject={collab.rejectJoin}
               onLeave={collab.leaveRoom}
               onKick={collab.kickMember}
-              onLockRoom={collab.lockRoom}
+              onSetRoomMode={collab.setRoomMode}
               followingPeerId={followingPeerId}
               onToggleFollow={setFollowingPeer}
               sharedFiles={collab.sharedFiles}

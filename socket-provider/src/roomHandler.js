@@ -99,7 +99,12 @@ export function createRoomHandler({ rooms, docs, store }) {
               for (const f of revivedMeta.sharedFiles || []) {
                 room.addSharedFile({ id: f.id, name: f.name, language: f.language });
               }
-              room.locked = !!revivedMeta.locked;
+              room.mode =
+                revivedMeta.mode === 'open' || revivedMeta.mode === 'locked' || revivedMeta.mode === 'approval'
+                  ? revivedMeta.mode
+                  : revivedMeta.locked
+                    ? 'locked'
+                    : 'approval';
               for (const row of store.listDocs(roomId)) {
                 docs.restore(`${roomId}/${row.file_id}`, row.state);
               }
@@ -123,7 +128,7 @@ export function createRoomHandler({ rooms, docs, store }) {
               sendJson(ws, { type: OUT.ERROR, message: 'Room does not exist' });
               return;
             }
-            if (room.locked) {
+            if (room.mode === 'locked') {
               sendJson(ws, { type: OUT.ERROR, message: 'Room is locked' });
               return;
             }
@@ -132,12 +137,29 @@ export function createRoomHandler({ rooms, docs, store }) {
               sendJson(ws, { type: OUT.ERROR, message: 'Room is full' });
               return;
             }
+            const displayName = sanitizeStr(msg.displayName, 'Guest', 40);
+            const color = sanitizeColor(msg.color, CURSOR_COLORS[1]);
+
+            if (room.mode === 'open') {
+              // Open room: the room id is the ticket — join immediately.
+              if (room.pending.has(peerId)) room.removePending(peerId);
+              room.admit(peerId, ws, displayName, color);
+              joined = true;
+              sendJson(ws, {
+                type: OUT.APPROVED,
+                peerId,
+                roomToken: room.docTokenOf(peerId),
+                sharedFiles: room.getSharedFilesList(),
+              });
+              room.broadcastMembersUpdate();
+              log.info('room', `open-join ${roomId} ${peerId} (${displayName})`);
+              return;
+            }
+
             if (room.pending.size >= MAX_PENDING_PER_ROOM) {
               sendJson(ws, { type: OUT.ERROR, message: 'Too many pending join requests' });
               return;
             }
-            const displayName = sanitizeStr(msg.displayName, 'Guest', 40);
-            const color = sanitizeColor(msg.color, CURSOR_COLORS[1]);
             const alreadyPending = room.pending.has(peerId);
             room.addPending(peerId, ws, displayName, color);
             joined = true;
@@ -294,21 +316,47 @@ export function createRoomHandler({ rooms, docs, store }) {
             return;
           }
 
+          case CONTROL.SET_MODE:
           case CONTROL.LOCK_ROOM: {
+            // set-mode {mode} is the modern control; lock-room {locked} is the
+            // legacy pair (mapped: true→locked, false→approval).
             if (!room || !room.isHost(peerId)) return;
-            const locked = typeof msg.locked === 'boolean' ? msg.locked : !room.locked;
-            room.locked = locked;
-            // When locking, reject all pending requests
-            if (locked) {
-              for (const [pid, p] of room.pending) {
+            let mode;
+            if (msg.type === CONTROL.SET_MODE) {
+              mode = typeof msg.mode === 'string' ? msg.mode : '';
+            } else {
+              mode = msg.locked === true ? 'locked' : 'approval';
+            }
+            if (mode !== 'open' && mode !== 'approval' && mode !== 'locked') return;
+            const previous = room.mode;
+            room.mode = mode;
+
+            // Entering locked: flush everyone waiting (requests are no longer
+            // possible). Entering open: admit everyone who was waiting.
+            if (mode === 'locked' && previous !== 'locked') {
+              for (const [, p] of room.pending) {
                 sendJson(p.ws, { type: OUT.REJECTED });
                 try { p.ws.close(CLOSE.NORMAL, 'rejected'); } catch {}
               }
               room.pending.clear();
+            } else if (mode === 'open' && previous !== 'open') {
+              for (const [pid, p] of room.pending) {
+                room.approve(pid);
+                sendJson(p.ws, {
+                  type: OUT.APPROVED,
+                  peerId: pid,
+                  roomToken: room.docTokenOf(pid),
+                  sharedFiles: room.getSharedFilesList(),
+                });
+                log.info('room', `auto-admitted ${roomId} ${pid} (mode=open)`);
+              }
+              room.pending.clear();
             }
-            room.broadcastJson({ type: OUT.ROOM_LOCKED, locked });
+            // Compat: old clients only understand room-locked.
+            room.broadcastJson({ type: OUT.ROOM_LOCKED, locked: mode === 'locked' });
+            room.broadcastJson({ type: OUT.MODE_CHANGED, mode });
             room.broadcastMembersUpdate();
-            log.info('room', `room ${roomId} locked=${locked}`);
+            log.info('room', `room ${roomId} mode=${mode}`);
             return;
           }
 
@@ -381,7 +429,7 @@ export function createRoomHandler({ rooms, docs, store }) {
             }
             store.saveRoom(
               room.roomId,
-              { sharedFiles: room.getSharedFilesList(), locked: room.locked },
+              { sharedFiles: room.getSharedFilesList(), mode: room.mode },
               now,
             );
             log.info('room', `dormant ${room.roomId} (revivable for ${ROOM_TTL_HOURS}h)`);

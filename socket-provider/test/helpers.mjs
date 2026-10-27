@@ -1,6 +1,9 @@
 // Test helpers — spawn a real socket-provider subprocess and probe it over WS.
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import WebSocket from 'ws';
 
 // Deterministic per-file port so parallel test files don't collide.
@@ -16,9 +19,14 @@ export const SERVER_PORT = portForFile();
 
 export async function startServer(env = {}) {
   const port = env.PORT ? Number(env.PORT) : SERVER_PORT;
+  // Isolated persistence per spawned server unless the test opts into a
+  // shared path (durable-room tests) — otherwise dormant-room revival from a
+  // previous run would leak state into fixed room ids.
+  const dbPath =
+    env.COLLABIFY_DB_PATH ?? path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'collabify-test-')), 'rooms.db');
   const proc = spawn(process.execPath, ['src/server.js'], {
     cwd: new URL('..', import.meta.url).pathname,
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', ...env },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', COLLABIFY_DB_PATH: dbPath, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';

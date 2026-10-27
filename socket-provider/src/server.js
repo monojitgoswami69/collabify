@@ -256,7 +256,7 @@ if (store) {
     for (const [roomId, room] of rooms) {
       if (room.members.size === 0) continue;
       // Metadata + docs together, so a crash revives rooms wholesale.
-      store.saveRoom(roomId, { sharedFiles: room.getSharedFilesList(), locked: room.locked }, now);
+      store.saveRoom(roomId, { sharedFiles: room.getSharedFilesList(), mode: room.mode }, now);
       for (const fileId of room.sharedFiles.keys()) {
         const state = docs.snapshot(`${roomId}/${fileId}`);
         if (state) store.saveDoc(roomId, fileId, state, now);

@@ -6,13 +6,14 @@ import { useMountTransition } from '@/hooks/useMountTransition';
 import {
   Users,
   Eye,
+  Globe,
+  UserCheck,
   Wifi,
   WifiOff,
   Loader2,
   Copy,
   Check,
   LogOut,
-  UserCheck,
   UserX,
   Clock,
   Crown,
@@ -23,20 +24,20 @@ import {
   UserMinus,
 } from 'lucide-react';
 import QRCode from 'react-qr-code';
-import { CollabMember, PendingRequest, CollabStatus } from '@/services/collabService';
+import { CollabMember, PendingRequest, CollabStatus, RoomMode } from '@/services/collabService';
 
 interface Props {
   roomId: string;
   status: CollabStatus;
   isHost: boolean;
-  isLocked: boolean;
+  mode: RoomMode;
   members: CollabMember[];
   pending: PendingRequest[];
   onApprove: (peerId: string) => void;
   onReject: (peerId: string) => void;
   onLeave: () => void;
   onKick: (peerId: string) => void;
-  onLockRoom: (locked: boolean) => void;
+  onSetRoomMode: (mode: RoomMode) => void;
   followingPeerId: string | null;
   onToggleFollow: (peerId: string | null) => void;
 }
@@ -45,14 +46,14 @@ export const CollabBar = memo(function CollabBar({
   roomId,
   status,
   isHost,
-  isLocked,
+  mode,
   members,
   pending,
   onApprove,
   onReject,
   onLeave,
   onKick,
-  onLockRoom,
+  onSetRoomMode,
   followingPeerId,
   onToggleFollow,
   sharedFiles,
@@ -134,7 +135,8 @@ export const CollabBar = memo(function CollabBar({
       <div className="flex items-center gap-1.5 mr-1">
         {statusIcon()}
         {isHost && <Crown size={13} className="text-amber-500" />}
-        {isLocked && <Lock size={12} className="text-red-400" />}
+        {mode === 'locked' && <Lock size={12} className="text-red-400" />}
+        {mode === 'approval' && <UserCheck size={12} className="text-amber-400" />}
       </div>
 
       {/* Members button */}
@@ -340,25 +342,59 @@ export const CollabBar = memo(function CollabBar({
                 />
               </div>
 
-              {/* Lock toggle — host only */}
+              {/* Room access mode — host only: open / approval / locked */}
               {isHost && (
                 <div className="w-full">
                   <div className={`border-t ${border} pt-3 mt-1`}>
-                    <button
-                      onClick={() => onLockRoom(!isLocked)}
-                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all active:scale-[0.98] border ${
-                        isLocked
-                          ? isDark
-                            ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
-                            : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
-                          : isDark
-                            ? 'bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20'
-                            : 'bg-green-50 border-green-200 text-green-600 hover:bg-green-100'
-                      }`}
-                    >
-                      {isLocked ? <Lock size={14} /> : <Unlock size={14} />}
-                      {isLocked ? 'Room Locked — Click to Unlock' : 'Room Open — Click to Lock'}
-                    </button>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          ['open', 'Open', Globe],
+                          ['approval', 'Approval', UserCheck],
+                          ['locked', 'Locked', Lock],
+                        ] as const
+                      ).map(([m, label, Icon]) => (
+                        <button
+                          key={m}
+                          onClick={() => onSetRoomMode(m)}
+                          disabled={mode === m}
+                          title={
+                            m === 'open'
+                              ? 'Anyone with the room code joins instantly'
+                              : m === 'approval'
+                                ? 'Join requests require host approval'
+                                : 'Nobody can join or send requests'
+                          }
+                          className={`flex flex-col items-center gap-1 py-2 rounded-lg text-[10px] font-bold transition-all active:scale-[0.97] border ${
+                            mode === m
+                              ? m === 'locked'
+                                ? isDark
+                                  ? 'bg-red-500/15 border-red-500/40 text-red-400'
+                                  : 'bg-red-50 border-red-300 text-red-600'
+                                : m === 'open'
+                                  ? isDark
+                                    ? 'bg-green-500/15 border-green-500/40 text-green-400'
+                                    : 'bg-green-50 border-green-300 text-green-600'
+                                  : isDark
+                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                                    : 'bg-amber-50 border-amber-300 text-amber-600'
+                              : isDark
+                                ? 'border-slate-700/50 text-slate-400 hover:bg-slate-800/50'
+                                : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                          } disabled:cursor-default`}
+                        >
+                          <Icon size={14} />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className={`text-[9px] mt-1.5 text-center ${textM}`}>
+                      {mode === 'open'
+                        ? 'Anyone with the code joins instantly'
+                        : mode === 'approval'
+                          ? 'You approve each join request'
+                          : 'Nobody can join or send requests'}
+                    </p>
                   </div>
                 </div>
               )}

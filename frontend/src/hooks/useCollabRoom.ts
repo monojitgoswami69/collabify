@@ -6,6 +6,7 @@ import {
   CollabMember,
   PendingRequest,
   CollabStatus,
+  RoomMode,
   SharedFileInfo,
   CollabEvents,
   getRandomColor,
@@ -23,7 +24,7 @@ export interface CollabState {
   status: CollabStatus;
   roomId: string | null;
   isHost: boolean;
-  isLocked: boolean;
+  mode: RoomMode;
   /** Peer whose file changes we are following (null = not following). */
   followingPeerId: string | null;
   displayName: string;
@@ -42,7 +43,7 @@ export function useCollabRoom() {
     status: 'disconnected',
     roomId: null,
     isHost: false,
-    isLocked: false,
+    mode: 'approval',
     followingPeerId: null,
     displayName: '',
     color: getRandomColor(),
@@ -223,7 +224,7 @@ export function useCollabRoom() {
           status: 'disconnected',
           roomId: null,
           isHost: false,
-          isLocked: false,
+          mode: 'approval',
           followingPeerId: null,
           members: [],
           pending: [],
@@ -241,7 +242,7 @@ export function useCollabRoom() {
           status: 'disconnected',
           roomId: null,
           isHost: false,
-          isLocked: false,
+          mode: 'approval',
           members: [],
           pending: [],
           sharedFiles: [],
@@ -250,9 +251,16 @@ export function useCollabRoom() {
           peerId: '',
         }));
       },
-      onRoomLocked: (locked) => {
-        setState((prev) => ({ ...prev, isLocked: locked }));
-        addToast(locked ? 'Room is now locked' : 'Room is now open', 'info');
+      onModeChanged: (mode) => {
+        setState((prev) => ({ ...prev, mode }));
+        addToast(
+          mode === 'locked'
+            ? 'Room is now locked'
+            : mode === 'open'
+              ? 'Room is open — anyone with the code can join'
+              : 'Join requests now require approval',
+          'info',
+        );
       },
     }),
     [addToast],
@@ -273,6 +281,7 @@ export function useCollabRoom() {
         isHost: true,
         isLocked: false,
         status: 'connecting',
+        mode: 'approval',
         members: [],
         pending: [],
         sharedFiles: [],
@@ -370,8 +379,8 @@ export function useCollabRoom() {
     providerRef.current?.kickMember(peerId);
   }, []);
 
-  const lockRoom = useCallback((locked: boolean) => {
-    providerRef.current?.lockRoom(locked);
+  const setRoomMode = useCallback((mode: RoomMode) => {
+    providerRef.current?.setRoomMode(mode);
   }, []);
 
   const setFollowingPeer = useCallback((peerId: string | null) => {
@@ -403,6 +412,6 @@ export function useCollabRoom() {
     dismissToast,
     sendChatMessage,
     kickMember,
-    lockRoom,
+    setRoomMode,
   };
 }

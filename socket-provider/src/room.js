@@ -22,7 +22,8 @@ export class Room {
   constructor(roomId) {
     this.roomId = roomId;
     this.hostId = null;
-    this.locked = false;
+    /** @type {'open' | 'approval' | 'locked'} */
+    this.mode = 'approval';
 
     /** @type {Map<string, Member>} */
     this.members = new Map();
@@ -40,6 +41,12 @@ export class Room {
 
   addHost(peerId, ws, displayName, color) {
     this.hostId = peerId;
+    this.members.set(peerId, { ws, displayName, color });
+    this.docTokens.set(peerId, newDocToken());
+  }
+
+  /** Directly admit a member (open-mode joins) — member + doc token, no pending stop. */
+  admit(peerId, ws, displayName, color) {
     this.members.set(peerId, { ws, displayName, color });
     this.docTokens.set(peerId, newDocToken());
   }

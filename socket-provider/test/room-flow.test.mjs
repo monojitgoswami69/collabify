@@ -131,15 +131,98 @@ test('non-host cannot approve, share, kick, or lock', async () => {
   host.close(); guest.close();
 });
 
-test('locking a room rejects new joins and pending requests', async () => {
+test('legacy lock-room maps onto the mode system and rejects joins', async () => {
   const host = await connect('/room/FLOW08');
   send(host, { type: 'create', displayName: 'Host', color: '#FF6B6B' });
   await findMsg(host, 'room-created');
   send(host, { type: 'lock-room', locked: true });
-  await findMsg(host, 'room-locked');
+  assert.ok(await findMsg(host, 'room-locked'), 'legacy broadcast still sent');
+  const modeChanged = await findMsg(host, 'mode-changed');
+  assert.ok(modeChanged && modeChanged.mode === 'locked', 'legacy message maps to locked mode');
   const guest = await connect('/room/FLOW08');
   send(guest, { type: 'join', displayName: 'Guest', color: '#4ECDC4' });
   const err = await findMsg(guest, 'error');
   assert.ok(err && /locked/.test(err.message), 'join rejected while locked');
   host.close(); guest.close();
+});
+
+test('set-mode locked rejects joins and flushes pending requests', async () => {
+  const host = await connect('/room/FLOW09');
+  send(host, { type: 'create', displayName: 'Host', color: '#FF6B6B' });
+  await findMsg(host, 'room-created');
+
+  // A waiting guest gets flushed when the room locks.
+  const waiting = await connect('/room/FLOW09');
+  send(waiting, { type: 'join', displayName: 'W', color: '#4ECDC4' });
+  assert.ok(await findMsg(host, 'join-request'), 'pending request arrives');
+  send(host, { type: 'set-mode', mode: 'locked' });
+  assert.ok(await findMsg(waiting, 'rejected'), 'pending guest flushed with REJECTED');
+  assert.ok(await findMsg(host, 'mode-changed'), 'host sees mode change');
+
+  const guest = await connect('/room/FLOW09');
+  send(guest, { type: 'join', displayName: 'G', color: '#4ECDC4' });
+  const err = await findMsg(guest, 'error');
+  assert.ok(err && /locked/.test(err.message), 'fresh join rejected while locked');
+  host.close(); guest.close(); waiting.close();
+});
+
+test('open mode joins instantly without approval', async () => {
+  const host = await connect('/room/FLOW10');
+  send(host, { type: 'create', displayName: 'Host', color: '#FF6B6B' });
+  await findMsg(host, 'room-created');
+  send(host, { type: 'set-mode', mode: 'open' });
+  assert.ok(await findMsg(host, 'mode-changed'), 'mode change broadcast');
+  host.messages.length = 0; // drop the set-mode members-update
+
+  const guest = await connect('/room/FLOW10');
+  send(guest, { type: 'join', displayName: 'Guest', color: '#4ECDC4' });
+  const approved = await findMsg(guest, 'approved');
+  assert.ok(approved, 'guest admitted without approval');
+  assert.ok(approved.roomToken, 'guest receives a doc token');
+  assert.ok(Array.isArray(approved.sharedFiles));
+  const members = await findMsg(host, 'members-update');
+  assert.ok(members.members.some((m) => m.displayName === 'Guest'), 'guest is a member');
+  host.close(); guest.close();
+});
+
+test('switching to open admits everyone already waiting', async () => {
+  const host = await connect('/room/FLOW11');
+  send(host, { type: 'create', displayName: 'Host', color: '#FF6B6B' });
+  await findMsg(host, 'room-created');
+
+  const g1 = await connect('/room/FLOW11');
+  send(g1, { type: 'join', displayName: 'G1', color: '#4ECDC4' });
+  await findMsg(host, 'join-request');
+  const g2 = await connect('/room/FLOW11');
+  send(g2, { type: 'join', displayName: 'G2', color: '#45B7D1' });
+  await findMsg(host, 'join-request');
+
+  send(host, { type: 'set-mode', mode: 'open' });
+  const a1 = await findMsg(g1, 'approved');
+  const a2 = await findMsg(g2, 'approved');
+  assert.ok(a1?.roomToken && a2?.roomToken, 'both waiting guests auto-admitted with tokens');
+  host.close(); g1.close(); g2.close();
+});
+
+test('approval mode still requires host approval (default state)', async () => {
+  const host = await connect('/room/FLOW12');
+  send(host, { type: 'create', displayName: 'Host', color: '#FF6B6B' });
+  await findMsg(host, 'room-created');
+  const guest = await connect('/room/FLOW12');
+  send(guest, { type: 'join', displayName: 'Guest', color: '#4ECDC4' });
+  assert.ok(await findMsg(guest, 'waiting-approval'), 'default mode requires approval');
+  await findMsg(host, 'join-request');
+  send(host, { type: 'set-mode', mode: 'locked' });
+  await findMsg(host, 'mode-changed');
+  send(host, { type: 'set-mode', mode: 'approval' });
+  await findMsg(host, 'mode-changed');
+  // Pending was flushed by the locked episode — the server closed the
+  // guest's socket (like the real client flow), so it reconnects fresh.
+  const guest2 = await connect('/room/FLOW12');
+  send(guest2, { type: 'join', displayName: 'Guest', color: '#4ECDC4' });
+  const req2 = await findMsg(host, 'join-request');
+  assert.ok(req2, 're-join request arrives after re-open');
+  send(host, { type: 'approve', peerId: req2.peerId });
+  assert.ok(await findMsg(guest2, 'approved'), 'approval flow works after mode changes');
+  host.close(); guest2.close();
 });

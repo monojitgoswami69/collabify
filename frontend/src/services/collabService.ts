@@ -48,6 +48,8 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export type RoomMode = 'open' | 'approval' | 'locked';
+
 export type CollabStatus =
   | 'disconnected'
   | 'connecting'
@@ -73,8 +75,8 @@ export interface CollabEvents {
   onConnectionLost: () => void;
   /** Fired when this peer is kicked by the host. */
   onKicked: () => void;
-  /** Fired when the room lock state changes. */
-  onRoomLocked: (locked: boolean) => void;
+  /** Fired when the room access mode changes (open / approval / locked). */
+  onModeChanged: (mode: RoomMode) => void;
 }
 
 const CURSOR_COLORS = [
@@ -418,8 +420,9 @@ export class CollabProvider {
     this._sendJson({ type: 'kick', peerId });
   }
 
-  lockRoom(locked: boolean) {
-    this._sendJson({ type: 'lock-room', locked });
+  /** Host only: set the room access mode (open / approval / locked). */
+  setRoomMode(mode: RoomMode) {
+    this._sendJson({ type: 'set-mode', mode });
   }
 
   /** Tell the room which file this peer is viewing (per-file presence). */
@@ -564,9 +567,19 @@ export class CollabProvider {
         this.events.onKicked();
         break;
 
-      case 'room-locked':
-        this.events.onRoomLocked(msg.locked as boolean);
+      case 'mode-changed':
+      case 'room-locked': {
+        // mode-changed is authoritative; room-locked is the legacy broadcast
+        // (kept for one transition release across mixed client versions).
+        const mode: RoomMode =
+          msg.type === 'mode-changed' && typeof msg.mode === 'string'
+            ? (msg.mode as RoomMode)
+            : msg.locked === true
+              ? 'locked'
+              : 'approval';
+        this.events.onModeChanged(mode);
         break;
+      }
     }
   }
 

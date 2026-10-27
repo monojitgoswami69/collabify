@@ -115,7 +115,7 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 ### Room Management
 - Host-controlled rooms with join request and approval workflow
 - Kicking a member revokes document access immediately (doc sockets are closed and their token invalidated)
-- Room locking; host promotion when the host leaves
+- Three-state room access (host-controlled): **Open** (anyone with the code joins instantly), **Approval** (host approves each request), **Locked** (nobody joins or sends requests)
 - Peer presence tracking with colored avatars and display names
 
 ### Code Editor
@@ -156,6 +156,7 @@ All concurrent edits are resolved using Yjs CRDTs. Unlike OT systems that requir
 
 - **Room codes** are generated with the Web Crypto CSPRNG (8 characters, 32-symbol alphabet).
 - **Doc tokens** are 192-bit server-generated capabilities; one per member, revoked on kick/leave.
+- **Room modes**: open rooms admit instantly (the code is the ticket); locked rooms reject joins before any request is queued.
 - **Identity validation**: room/file ids are validated at the upgrade boundary; malformed encodings and ids containing `/` are rejected.
 - **HTTP surface**: `/health` exposes counts only; `/stats` exposes aggregates (no room ids).
 - **Input limits**: 2 MiB per WebSocket message, 1 MiB per shared file, 200 files per room, 2 000 chars per chat message (10 per 5 s per peer).

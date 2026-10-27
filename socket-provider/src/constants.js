@@ -15,6 +15,8 @@ export const CONTROL = {
   REORDER_FILES: 'reorder-files',
   CHAT_MESSAGE: 'chat-message',
   PRESENCE: 'presence',
+  SET_MODE: 'set-mode',
+  LOCK_ROOM: 'lock-room', // legacy client → mapped onto SET_MODE
   LEAVE: 'leave',
   KICK: 'kick',
   LOCK_ROOM: 'lock-room',
@@ -37,7 +39,8 @@ export const OUT = {
   CHAT_MESSAGE: 'chat-message',
   ERROR: 'error',
   KICKED: 'kicked',
-  ROOM_LOCKED: 'room-locked',
+  ROOM_LOCKED: 'room-locked', // legacy broadcast (same tick as MODE_CHANGED)
+  MODE_CHANGED: 'mode-changed',
 };
 
 // Predefined cursor colors (matches client)
@@ -63,6 +66,9 @@ export const MAX_FILE_ID_LEN = 200;
 export const MAX_SHARED_FILES_PER_ROOM = 200;
 export const MAX_REORDER_LIST_LEN = 200;
 export const MAX_CHAT_LEN = 2000;
+
+// Room access mode: 'open' (room id = entry, no approval), 'approval'
+// (host approves join requests), 'locked' (nobody joins or requests).
 
 // Identity grammar enforced after percent-decoding at the upgrade boundary.
 // A roomId containing '/' would corrupt the `roomId/fileId` doc-key namespace
